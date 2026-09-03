@@ -18,6 +18,7 @@ type Backend struct {
 type Pool struct {
 	ID       string
 	Name     string
+	Metadata map[string]string
 	Backends map[string]*Backend
 }
 
@@ -54,6 +55,7 @@ func (s *InMemoryStore) AddBackend(poolID string, backend Backend) error {
 		pool = Pool{
 			ID:       poolID,
 			Name:     poolID,
+			Metadata: make(map[string]string),
 			Backends: make(map[string]*Backend),
 		}
 	}
