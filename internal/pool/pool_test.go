@@ -28,6 +28,9 @@ func TestAddBackendCreatesPoolAndStoresBackend(t *testing.T) {
 	if !exists {
 		t.Fatal("expected backend to exist in pool")
 	}
+	if stored == nil {
+		t.Fatal("expected backend pointer to be non-nil")
+	}
 	if stored.PoolID != "pool-a" {
 		t.Fatalf("expected backend PoolID pool-a, got %q", stored.PoolID)
 	}

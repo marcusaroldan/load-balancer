@@ -18,7 +18,7 @@ type Backend struct {
 type Pool struct {
 	ID       string
 	Name     string
-	Backends map[string]Backend
+	Backends map[string]*Backend
 }
 
 // InMemoryStore is an in-memory registry of pools and their backends.
@@ -54,7 +54,7 @@ func (s *InMemoryStore) AddBackend(poolID string, backend Backend) error {
 		pool = Pool{
 			ID:       poolID,
 			Name:     poolID,
-			Backends: make(map[string]Backend),
+			Backends: make(map[string]*Backend),
 		}
 	}
 
@@ -62,8 +62,9 @@ func (s *InMemoryStore) AddBackend(poolID string, backend Backend) error {
 		return errors.New("backend already exists")
 	}
 
-	backend.PoolID = poolID
-	pool.Backends[backend.ID] = backend
+	backendCopy := backend
+	backendCopy.PoolID = poolID
+	pool.Backends[backend.ID] = &backendCopy
 	s.pools[poolID] = pool
 
 	return nil
@@ -117,7 +118,7 @@ func (s *InMemoryStore) ListPools() []Pool {
 }
 
 // ListBackends returns all backends for a pool.
-func (s *InMemoryStore) ListBackends(poolID string) []Backend {
+func (s *InMemoryStore) ListBackends(poolID string) []*Backend {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -126,7 +127,7 @@ func (s *InMemoryStore) ListBackends(poolID string) []Backend {
 		return nil
 	}
 
-	backends := make([]Backend, 0, len(pool.Backends))
+	backends := make([]*Backend, 0, len(pool.Backends))
 	for _, backend := range pool.Backends {
 		backends = append(backends, backend)
 	}
