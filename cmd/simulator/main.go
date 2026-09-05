@@ -7,10 +7,15 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/marcusaroldan/load-balancer/internal/simulator"
+)
+
+const (
+	defaultBindHost = "0.0.0.0"
+	defaultPort     = 8081
+	defaultStatic   = "web"
 )
 
 type updateRequest struct {
@@ -18,9 +23,9 @@ type updateRequest struct {
 }
 
 func main() {
-	host := flag.String("host", "0.0.0.0", "bind host")
-	port := flag.Int("port", 8081, "bind port")
-	staticDir := flag.String("static", filepath.Join(".", "web"), "static assets directory")
+	host := flag.String("host", defaultBindHost, "bind host")
+	port := flag.Int("port", defaultPort, "bind port")
+	staticDir := flag.String("static", filepath.Join(".", defaultStatic), "static assets directory")
 	flag.Parse()
 
 	harness, err := simulator.NewHarness(simulator.PresetScenarioConfigs["stable"])
@@ -322,19 +327,9 @@ func parseDuration(value string) time.Duration {
 	if value == "" {
 		return 0
 	}
-	if strings.Contains(value, "ms") {
-		var ms int
-		_, err := fmt.Sscanf(value, "%dms", &ms)
-		if err == nil {
-			return time.Duration(ms) * time.Millisecond
-		}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0
 	}
-	if strings.Contains(value, "s") {
-		var secs int
-		_, err := fmt.Sscanf(value, "%ds", &secs)
-		if err == nil {
-			return time.Duration(secs) * time.Second
-		}
-	}
-	return 0
+	return duration
 }

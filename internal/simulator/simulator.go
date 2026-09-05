@@ -12,6 +12,32 @@ import (
 	"time"
 )
 
+const (
+	defaultStrategy            = "round_robin"
+	defaultCustomScenarioName  = "custom"
+	defaultPoolName            = "default"
+	defaultClients             = 3
+	defaultRequestRate         = 30
+	defaultLoopbackAddress     = "127.0.0.1"
+	defaultPortOffset          = 18080
+	defaultBackendWeight       = 1
+	trafficLoopInterval        = 200 * time.Millisecond
+	trafficBurstFactor         = 5
+	failureRateScale           = 100.0
+	simulatorLoadPercentScale  = 10
+	simulatorLoadPercentMax    = 100
+	processingDelayMeanMS      = 125.0
+	processingDelaySigma       = 75.0
+	processingDelayMinMS       = 50.0
+	processingDelayMaxMS       = 200.0
+	stableScenarioBasePort     = 18081
+	highLatencyBasePort        = 18091
+	partialFailureBasePort     = 18101
+	partitionScenarioBasePort  = 18111
+	weightedScenarioBasePort   = 18121
+	failureCheckThresholdScale = 100
+)
+
 // ScenarioConfig represents a preset simulator configuration for a demo scenario.
 type ScenarioConfig struct {
 	Name     string
@@ -96,47 +122,47 @@ type Harness struct {
 var PresetScenarioConfigs = map[string]ScenarioConfig{
 	"stable": {
 		Name:     "stable",
-		Strategy: "round_robin",
+		Strategy: defaultStrategy,
 		Backends: []BackendConfig{
-			{ID: "backend-1", Address: "127.0.0.1", Port: 18081, Weight: 1, Latency: 20 * time.Millisecond, Healthy: true, Pool: "default"},
-			{ID: "backend-2", Address: "127.0.0.1", Port: 18082, Weight: 1, Latency: 20 * time.Millisecond, Healthy: true, Pool: "default"},
-			{ID: "backend-3", Address: "127.0.0.1", Port: 18083, Weight: 1, Latency: 30 * time.Millisecond, Healthy: true, Pool: "default"},
+			{ID: "backend-1", Address: defaultLoopbackAddress, Port: stableScenarioBasePort, Weight: 1, Latency: 20 * time.Millisecond, Healthy: true, Pool: defaultPoolName},
+			{ID: "backend-2", Address: defaultLoopbackAddress, Port: stableScenarioBasePort + 1, Weight: 1, Latency: 20 * time.Millisecond, Healthy: true, Pool: defaultPoolName},
+			{ID: "backend-3", Address: defaultLoopbackAddress, Port: stableScenarioBasePort + 2, Weight: 1, Latency: 30 * time.Millisecond, Healthy: true, Pool: defaultPoolName},
 		},
 	},
 	"high_latency": {
 		Name:     "high_latency",
 		Strategy: "least_connections",
 		Backends: []BackendConfig{
-			{ID: "backend-1", Address: "127.0.0.1", Port: 18091, Weight: 1, Latency: 250 * time.Millisecond, Healthy: true, Pool: "default"},
-			{ID: "backend-2", Address: "127.0.0.1", Port: 18092, Weight: 1, Latency: 400 * time.Millisecond, Healthy: true, Pool: "default"},
-			{ID: "backend-3", Address: "127.0.0.1", Port: 18093, Weight: 1, Latency: 500 * time.Millisecond, Healthy: true, Pool: "default"},
+			{ID: "backend-1", Address: defaultLoopbackAddress, Port: highLatencyBasePort, Weight: 1, Latency: 250 * time.Millisecond, Healthy: true, Pool: defaultPoolName},
+			{ID: "backend-2", Address: defaultLoopbackAddress, Port: highLatencyBasePort + 1, Weight: 1, Latency: 400 * time.Millisecond, Healthy: true, Pool: defaultPoolName},
+			{ID: "backend-3", Address: defaultLoopbackAddress, Port: highLatencyBasePort + 2, Weight: 1, Latency: 500 * time.Millisecond, Healthy: true, Pool: defaultPoolName},
 		},
 	},
 	"partial_failure": {
 		Name:     "partial_failure",
 		Strategy: "weighted_round_robin",
 		Backends: []BackendConfig{
-			{ID: "backend-1", Address: "127.0.0.1", Port: 18101, Weight: 3, Latency: 40 * time.Millisecond, Healthy: true, Pool: "default"},
-			{ID: "backend-2", Address: "127.0.0.1", Port: 18102, Weight: 1, Latency: 50 * time.Millisecond, Healthy: true, FailureRate: 0.4, Pool: "default"},
-			{ID: "backend-3", Address: "127.0.0.1", Port: 18103, Weight: 2, Latency: 80 * time.Millisecond, Healthy: true, Pool: "default"},
+			{ID: "backend-1", Address: defaultLoopbackAddress, Port: partialFailureBasePort, Weight: 3, Latency: 40 * time.Millisecond, Healthy: true, Pool: defaultPoolName},
+			{ID: "backend-2", Address: defaultLoopbackAddress, Port: partialFailureBasePort + 1, Weight: 1, Latency: 50 * time.Millisecond, Healthy: true, FailureRate: 0.4, Pool: defaultPoolName},
+			{ID: "backend-3", Address: defaultLoopbackAddress, Port: partialFailureBasePort + 2, Weight: 2, Latency: 80 * time.Millisecond, Healthy: true, Pool: defaultPoolName},
 		},
 	},
 	"partition": {
 		Name:     "partition",
-		Strategy: "round_robin",
+		Strategy: defaultStrategy,
 		Backends: []BackendConfig{
-			{ID: "backend-1", Address: "127.0.0.1", Port: 18111, Weight: 1, Latency: 20 * time.Millisecond, Healthy: true, Pool: "default"},
-			{ID: "backend-2", Address: "127.0.0.1", Port: 18112, Weight: 1, Latency: 20 * time.Millisecond, Healthy: false, Pool: "default"},
-			{ID: "backend-3", Address: "127.0.0.1", Port: 18113, Weight: 1, Latency: 20 * time.Millisecond, Healthy: true, Pool: "default"},
+			{ID: "backend-1", Address: defaultLoopbackAddress, Port: partitionScenarioBasePort, Weight: 1, Latency: 20 * time.Millisecond, Healthy: true, Pool: defaultPoolName},
+			{ID: "backend-2", Address: defaultLoopbackAddress, Port: partitionScenarioBasePort + 1, Weight: 1, Latency: 20 * time.Millisecond, Healthy: false, Pool: defaultPoolName},
+			{ID: "backend-3", Address: defaultLoopbackAddress, Port: partitionScenarioBasePort + 2, Weight: 1, Latency: 20 * time.Millisecond, Healthy: true, Pool: defaultPoolName},
 		},
 	},
 	"weighted": {
 		Name:     "weighted",
 		Strategy: "weighted_round_robin",
 		Backends: []BackendConfig{
-			{ID: "backend-1", Address: "127.0.0.1", Port: 18121, Weight: 5, Latency: 35 * time.Millisecond, Healthy: true, Pool: "default"},
-			{ID: "backend-2", Address: "127.0.0.1", Port: 18122, Weight: 2, Latency: 40 * time.Millisecond, Healthy: true, Pool: "default"},
-			{ID: "backend-3", Address: "127.0.0.1", Port: 18123, Weight: 1, Latency: 60 * time.Millisecond, Healthy: true, Pool: "default"},
+			{ID: "backend-1", Address: defaultLoopbackAddress, Port: weightedScenarioBasePort, Weight: 5, Latency: 35 * time.Millisecond, Healthy: true, Pool: defaultPoolName},
+			{ID: "backend-2", Address: defaultLoopbackAddress, Port: weightedScenarioBasePort + 1, Weight: 2, Latency: 40 * time.Millisecond, Healthy: true, Pool: defaultPoolName},
+			{ID: "backend-3", Address: defaultLoopbackAddress, Port: weightedScenarioBasePort + 2, Weight: 1, Latency: 60 * time.Millisecond, Healthy: true, Pool: defaultPoolName},
 		},
 	},
 }
@@ -144,117 +170,28 @@ var PresetScenarioConfigs = map[string]ScenarioConfig{
 // NewHarness creates a simulator harness for a preset scenario.
 func NewHarness(cfg ScenarioConfig) (*Harness, error) {
 	if cfg.Name == "" {
-		cfg.Name = "custom"
+		cfg.Name = defaultCustomScenarioName
 	}
 	if cfg.Strategy == "" {
-		cfg.Strategy = "round_robin"
+		cfg.Strategy = defaultStrategy
 	}
 
 	h := &Harness{
 		name:        cfg.Name,
 		strategy:    cfg.Strategy,
-		clients:     3,
-		requestRate: 30,
+		clients:     defaultClients,
+		requestRate: defaultRequestRate,
 		pools:       make(map[string]struct{}),
 		backends:    make(map[string]*Backend),
 		stop:        make(chan struct{}),
 	}
 
 	for _, backendCfg := range cfg.Backends {
-		if backendCfg.ID == "" {
-			return nil, fmt.Errorf("backend id is required")
-		}
-		if backendCfg.Address == "" {
-			backendCfg.Address = "127.0.0.1"
-		}
-		if backendCfg.Port == 0 {
-			backendCfg.Port = 18080 + len(h.backends)
-		}
-		if backendCfg.Weight <= 0 {
-			backendCfg.Weight = 1
-		}
-		if backendCfg.Pool == "" {
-			backendCfg.Pool = "default"
-		}
-		if !backendCfg.Healthy {
-			backendCfg.Failing = true
-		}
-
-		backend := &Backend{
-			ID:          backendCfg.ID,
-			Name:        backendCfg.ID,
-			Weight:      backendCfg.Weight,
-			Latency:     backendCfg.Latency,
-			Healthy:     backendCfg.Healthy,
-			Failing:     backendCfg.Failing,
-			FailureRate: backendCfg.FailureRate,
-			Pool:        backendCfg.Pool,
-		}
-		h.pools[backendCfg.Pool] = struct{}{}
-
-		listener, err := listenForBackend(backendCfg.Address, backendCfg.Port)
+		backend, err := newBackend(backendCfg)
 		if err != nil {
-			return nil, fmt.Errorf("listen on %s:%d for backend %s: %w", backendCfg.Address, backendCfg.Port, backendCfg.ID, err)
+			return nil, err
 		}
-
-		backend.listener = listener
-		backend.URL = "http://" + listener.Addr().String()
-		backend.server = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			backend.mu.Lock()
-			backend.ActiveConnections++
-			latency := backend.Latency
-			healthy := backend.Healthy
-			failureRate := backend.FailureRate
-			failing := backend.Failing
-			backend.mu.Unlock()
-
-			defer func() {
-				backend.mu.Lock()
-				if backend.ActiveConnections > 0 {
-					backend.ActiveConnections--
-				}
-				backend.mu.Unlock()
-			}()
-
-			if r.URL.Path == "/health" {
-				if !healthy {
-					w.WriteHeader(http.StatusServiceUnavailable)
-					return
-				}
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte("ok"))
-				return
-			}
-
-			if latency > 0 {
-				time.Sleep(latency)
-			}
-			if processingDelay := randomProcessingDelay(); processingDelay > 0 {
-				time.Sleep(processingDelay)
-			}
-
-			if failing || failureRate > 0 {
-				if failing || failureRate >= 1.0 || (failureRate > 0 && time.Now().UnixNano()%100 < int64(failureRate*100)) {
-					w.WriteHeader(http.StatusBadGateway)
-					_, _ = w.Write([]byte("simulated failure"))
-					return
-				}
-			}
-
-			if !healthy {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				return
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			response := map[string]any{"id": backend.ID, "status": "ok"}
-			_ = json.NewEncoder(w).Encode(response)
-		})}
-
-		go func() {
-			_ = backend.server.Serve(listener)
-		}()
-
+		h.pools[backend.Pool] = struct{}{}
 		h.backends[backend.ID] = backend
 		h.servers = append(h.servers, backend.server)
 	}
@@ -324,7 +261,7 @@ func (h *Harness) State() SimulationState {
 		backend := h.backends[id]
 		backend.mu.RLock()
 		activeConnections := max(0, backend.ActiveConnections)
-		loadPercent := min(100, max(0, activeConnections*10))
+		loadPercent := min(simulatorLoadPercentMax, max(0, activeConnections*simulatorLoadPercentScale))
 		if !backend.Healthy {
 			loadPercent = 0
 		}
@@ -409,7 +346,7 @@ func (h *Harness) SetBackendPool(id, pool string) error {
 	}
 	pool = strings.TrimSpace(pool)
 	if pool == "" {
-		pool = "default"
+		pool = defaultPoolName
 	}
 	backend.mu.Lock()
 	backend.Pool = pool
@@ -437,89 +374,19 @@ func (h *Harness) SetWeight(id string, weight int) error {
 
 // AddBackend starts a new simulated backend and adds it to the harness.
 func (h *Harness) AddBackend(id, address string, port int, weight int, latency time.Duration, healthy bool) (*Backend, error) {
-	if id == "" {
-		return nil, fmt.Errorf("backend id is required")
-	}
-	if address == "" {
-		address = "127.0.0.1"
-	}
-	if weight <= 0 {
-		weight = 1
-	}
-
-	backend := &Backend{
+	backendCfg := BackendConfig{
 		ID:      id,
-		Name:    id,
-		URL:     fmt.Sprintf("http://%s:%d", address, port),
+		Address: address,
+		Port:    port,
 		Weight:  weight,
 		Latency: latency,
 		Healthy: healthy,
-		Failing: !healthy,
-		Pool:    "default",
+		Pool:    defaultPoolName,
 	}
-
-	listener, err := listenForBackend(address, port)
+	backend, err := newBackend(backendCfg)
 	if err != nil {
-		return nil, fmt.Errorf("listen on %s:%d for backend %s: %w", address, port, id, err)
+		return nil, err
 	}
-
-	backend.listener = listener
-	backend.URL = "http://" + listener.Addr().String()
-	backend.server = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		backend.mu.Lock()
-		backend.ActiveConnections++
-		latency := backend.Latency
-		healthy := backend.Healthy
-		failureRate := backend.FailureRate
-		failing := backend.Failing
-		backend.mu.Unlock()
-
-		defer func() {
-			backend.mu.Lock()
-			if backend.ActiveConnections > 0 {
-				backend.ActiveConnections--
-			}
-			backend.mu.Unlock()
-		}()
-
-		if r.URL.Path == "/health" {
-			if !healthy {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				return
-			}
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("ok"))
-			return
-		}
-
-		if latency > 0 {
-			time.Sleep(latency)
-		}
-		if processingDelay := randomProcessingDelay(); processingDelay > 0 {
-			time.Sleep(processingDelay)
-		}
-
-		if failing || failureRate > 0 {
-			if failing || failureRate >= 1.0 || (failureRate > 0 && time.Now().UnixNano()%100 < int64(failureRate*100)) {
-				w.WriteHeader(http.StatusBadGateway)
-				_, _ = w.Write([]byte("simulated failure"))
-				return
-			}
-		}
-
-		if !healthy {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		response := map[string]any{"id": backend.ID, "status": "ok"}
-		_ = json.NewEncoder(w).Encode(response)
-	})}
-
-	go func() {
-		_ = backend.server.Serve(listener)
-	}()
 
 	h.mu.Lock()
 	h.backends[id] = backend
@@ -632,92 +499,19 @@ func (h *Harness) ResetScenario(name string) error {
 	}
 	h.name = cfg.Name
 	h.strategy = cfg.Strategy
-	h.clients = 3
-	h.requestRate = 30
+	h.clients = defaultClients
+	h.requestRate = defaultRequestRate
 	h.pools = make(map[string]struct{})
 	h.backends = make(map[string]*Backend)
 	h.servers = nil
 	h.stop = make(chan struct{})
 
 	for _, backendCfg := range cfg.Backends {
-		if backendCfg.Pool == "" {
-			backendCfg.Pool = "default"
-		}
-		h.pools[backendCfg.Pool] = struct{}{}
-
-		backend := &Backend{
-			ID:          backendCfg.ID,
-			Weight:      backendCfg.Weight,
-			Latency:     backendCfg.Latency,
-			Healthy:     backendCfg.Healthy,
-			Failing:     backendCfg.Failing,
-			FailureRate: backendCfg.FailureRate,
-			Pool:        backendCfg.Pool,
-		}
-
-		listener, err := listenForBackend(backendCfg.Address, backendCfg.Port)
+		backend, err := newBackend(backendCfg)
 		if err != nil {
-			return fmt.Errorf("listen on %s:%d for backend %s: %w", backendCfg.Address, backendCfg.Port, backendCfg.ID, err)
+			return err
 		}
-
-		backend.listener = listener
-		backend.URL = "http://" + listener.Addr().String()
-		backend.server = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			backend.mu.Lock()
-			backend.ActiveConnections++
-			latency := backend.Latency
-			healthy := backend.Healthy
-			failureRate := backend.FailureRate
-			failing := backend.Failing
-			backend.mu.Unlock()
-
-			defer func() {
-				backend.mu.Lock()
-				if backend.ActiveConnections > 0 {
-					backend.ActiveConnections--
-				}
-				backend.mu.Unlock()
-			}()
-
-			if r.URL.Path == "/health" {
-				if !healthy {
-					w.WriteHeader(http.StatusServiceUnavailable)
-					return
-				}
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte("ok"))
-				return
-			}
-
-			if latency > 0 {
-				time.Sleep(latency)
-			}
-			if processingDelay := randomProcessingDelay(); processingDelay > 0 {
-				time.Sleep(processingDelay)
-			}
-
-			if failing || failureRate > 0 {
-				if failing || failureRate >= 1.0 || (failureRate > 0 && time.Now().UnixNano()%100 < int64(failureRate*100)) {
-					w.WriteHeader(http.StatusBadGateway)
-					_, _ = w.Write([]byte("simulated failure"))
-					return
-				}
-			}
-
-			if !healthy {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				return
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			response := map[string]any{"id": backend.ID, "status": "ok"}
-			_ = json.NewEncoder(w).Encode(response)
-		})}
-
-		go func() {
-			_ = backend.server.Serve(listener)
-		}()
-
+		h.pools[backend.Pool] = struct{}{}
 		h.backends[backend.ID] = backend
 		h.servers = append(h.servers, backend.server)
 	}
@@ -747,7 +541,7 @@ func (h *Harness) Stop() {
 }
 
 func (h *Harness) runTrafficLoop() {
-	ticker := time.NewTicker(200 * time.Millisecond)
+	ticker := time.NewTicker(trafficLoopInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -765,13 +559,12 @@ func (h *Harness) runTrafficLoop() {
 					backends = append(backends, backend)
 				}
 			}
-			clients := h.clients
 			requestRate := h.requestRate
 			h.mu.RUnlock()
 			if len(backends) == 0 {
 				continue
 			}
-			for i := 0; i < max(1, requestRate/5); i++ {
+			for i := 0; i < max(1, requestRate/trafficBurstFactor); i++ {
 				backend := backends[i%len(backends)]
 				go func(backend *Backend) {
 					if backend == nil {
@@ -784,24 +577,113 @@ func (h *Harness) runTrafficLoop() {
 					_ = resp.Body.Close()
 				}(backend)
 			}
-			_ = clients
 		}
 	}
 }
 
 func randomProcessingDelay() time.Duration {
-	const (
-		mean  = 200
-		sigma = 75.0
-		minMs = 50.0
-		maxMs = 350.0
-	)
 	for {
-		value := rand.NormFloat64()*sigma + mean
-		if value >= minMs && value <= maxMs {
+		value := rand.NormFloat64()*processingDelaySigma + processingDelayMeanMS
+		if value >= processingDelayMinMS && value <= processingDelayMaxMS {
 			return time.Duration(value) * time.Millisecond
 		}
 	}
+}
+
+func newBackend(cfg BackendConfig) (*Backend, error) {
+	if cfg.ID == "" {
+		return nil, fmt.Errorf("backend id is required")
+	}
+	if cfg.Address == "" {
+		cfg.Address = defaultLoopbackAddress
+	}
+	if cfg.Port == 0 {
+		cfg.Port = 0
+	}
+	if cfg.Weight <= 0 {
+		cfg.Weight = defaultBackendWeight
+	}
+	if cfg.Pool == "" {
+		cfg.Pool = defaultPoolName
+	}
+	if !cfg.Healthy {
+		cfg.Failing = true
+	}
+
+	listener, err := listenForBackend(cfg.Address, cfg.Port)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %s:%d for backend %s: %w", cfg.Address, cfg.Port, cfg.ID, err)
+	}
+
+	backend := &Backend{
+		ID:          cfg.ID,
+		Name:        cfg.ID,
+		Weight:      cfg.Weight,
+		Latency:     cfg.Latency,
+		Healthy:     cfg.Healthy,
+		Failing:     cfg.Failing,
+		FailureRate: cfg.FailureRate,
+		Pool:        cfg.Pool,
+		listener:    listener,
+		URL:         "http://" + listener.Addr().String(),
+	}
+	backend.server = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backend.mu.Lock()
+		backend.ActiveConnections++
+		latency := backend.Latency
+		healthy := backend.Healthy
+		failureRate := backend.FailureRate
+		failing := backend.Failing
+		backend.mu.Unlock()
+
+		defer func() {
+			backend.mu.Lock()
+			if backend.ActiveConnections > 0 {
+				backend.ActiveConnections--
+			}
+			backend.mu.Unlock()
+		}()
+
+		if r.URL.Path == "/health" {
+			if !healthy {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
+
+		if latency > 0 {
+			time.Sleep(latency)
+		}
+		if processingDelay := randomProcessingDelay(); processingDelay > 0 {
+			time.Sleep(processingDelay)
+		}
+
+		if failing || failureRate > 0 {
+			if failing || failureRate >= 1.0 || (failureRate > 0 && time.Now().UnixNano()%int64(failureRateScale) < int64(failureRate*failureRateScale)) {
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = w.Write([]byte("simulated failure"))
+				return
+			}
+		}
+
+		if !healthy {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		response := map[string]any{"id": backend.ID, "status": "ok"}
+		_ = json.NewEncoder(w).Encode(response)
+	})}
+
+	go func() {
+		_ = backend.server.Serve(listener)
+	}()
+
+	return backend, nil
 }
 
 func listenForBackend(address string, port int) (net.Listener, error) {

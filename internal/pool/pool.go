@@ -5,6 +5,15 @@ import (
 	"sync"
 )
 
+var (
+	ErrPoolRequired           = errors.New("pool id is required")
+	ErrBackendRequired        = errors.New("backend id is required")
+	ErrBackendAddressRequired = errors.New("backend address is required")
+	ErrPoolNotFound           = errors.New("pool not found")
+	ErrBackendNotFound        = errors.New("backend not found")
+	ErrBackendAlreadyExists   = errors.New("backend already exists")
+)
+
 // Backend represents a single upstream server in a pool.
 type Backend struct {
 	ID      string
@@ -38,13 +47,13 @@ func NewInMemoryStore() *InMemoryStore {
 // AddBackend adds a backend to a pool. It creates the pool if it does not exist.
 func (s *InMemoryStore) AddBackend(poolID string, backend Backend) error {
 	if poolID == "" {
-		return errors.New("pool id is required")
+		return ErrPoolRequired
 	}
 	if backend.ID == "" {
-		return errors.New("backend id is required")
+		return ErrBackendRequired
 	}
 	if backend.Address == "" {
-		return errors.New("backend address is required")
+		return ErrBackendAddressRequired
 	}
 
 	s.mu.Lock()
@@ -61,7 +70,7 @@ func (s *InMemoryStore) AddBackend(poolID string, backend Backend) error {
 	}
 
 	if _, found := pool.Backends[backend.ID]; found {
-		return errors.New("backend already exists")
+		return ErrBackendAlreadyExists
 	}
 
 	backendCopy := backend
@@ -75,10 +84,10 @@ func (s *InMemoryStore) AddBackend(poolID string, backend Backend) error {
 // RemoveBackend removes a backend from a pool by its ID.
 func (s *InMemoryStore) RemoveBackend(poolID, backendID string) error {
 	if poolID == "" {
-		return errors.New("pool id is required")
+		return ErrPoolRequired
 	}
 	if backendID == "" {
-		return errors.New("backend id is required")
+		return ErrBackendRequired
 	}
 
 	s.mu.Lock()
@@ -86,11 +95,11 @@ func (s *InMemoryStore) RemoveBackend(poolID, backendID string) error {
 
 	pool, exists := s.pools[poolID]
 	if !exists {
-		return errors.New("pool not found")
+		return ErrPoolNotFound
 	}
 
 	if _, found := pool.Backends[backendID]; !found {
-		return errors.New("backend not found")
+		return ErrBackendNotFound
 	}
 
 	delete(pool.Backends, backendID)

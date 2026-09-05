@@ -95,7 +95,8 @@ func TestSimulationStateMatchesPureSimulatorContract(t *testing.T) {
 }
 
 func TestRandomProcessingDelayStaysWithinSimulationBounds(t *testing.T) {
-	for i := 0; i < 250; i++ {
+	const samples = 250
+	for i := 0; i < samples; i++ {
 		delay := randomProcessingDelay()
 		if delay < 50*time.Millisecond || delay > 200*time.Millisecond {
 			t.Fatalf("processing delay out of bounds: got %s, want between 50ms and 200ms", delay)
@@ -396,18 +397,16 @@ func TestHarnessEnvironmentStateIsPassedThroughForLB(t *testing.T) {
 	if backend.Weight != 9 {
 		t.Fatalf("expected weight 9, got %d", backend.Weight)
 	}
-	if !contains(state.Pools, "edge") {
-		t.Fatalf("expected simulator to expose pool group %q in state, got %v", "edge", state.Pools)
-	}
-}
-
-func contains(items []string, target string) bool {
-	for _, item := range items {
-		if item == target {
-			return true
+	foundEdgePool := false
+	for _, pool := range state.Pools {
+		if pool == "edge" {
+			foundEdgePool = true
+			break
 		}
 	}
-	return false
+	if !foundEdgePool {
+		t.Fatalf("expected simulator to expose pool group %q in state, got %v", "edge", state.Pools)
+	}
 }
 
 func TestHarnessUnhealthyAndPartitionedBackendsDrainTraffic(t *testing.T) {

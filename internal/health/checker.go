@@ -10,6 +10,12 @@ import (
 	"github.com/marcusaroldan/load-balancer/internal/pool"
 )
 
+const (
+	defaultHealthCheckInterval = 5 * time.Second
+	defaultHealthCheckPath     = "/health"
+	defaultHTTPTimeout         = 2 * time.Second
+)
+
 // Checker periodically probes backend health and updates the in-memory state.
 type Checker struct {
 	store    *pool.InMemoryStore
@@ -26,17 +32,17 @@ type Checker struct {
 // NewChecker creates a checker that probes backends with the configured interval and path.
 func NewChecker(store *pool.InMemoryStore, interval time.Duration, path string) *Checker {
 	if interval <= 0 {
-		interval = 5 * time.Second
+		interval = defaultHealthCheckInterval
 	}
 	if path == "" {
-		path = "/health"
+		path = defaultHealthCheckPath
 	}
 
 	return &Checker{
 		store:    store,
 		interval: interval,
 		path:     path,
-		client:   &http.Client{Timeout: 2 * time.Second},
+		client:   &http.Client{Timeout: defaultHTTPTimeout},
 		stopCh:   make(chan struct{}),
 	}
 }

@@ -3,9 +3,7 @@ package controlplane
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/marcusaroldan/load-balancer/internal/pool"
@@ -97,7 +95,7 @@ func (h *Handler) handleCreateBackend(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.store.AddBackend(req.PoolID, backend); err != nil {
 		status := http.StatusInternalServerError
-		if errors.Is(err, errDuplicateBackend) || strings.Contains(err.Error(), "already exists") {
+		if errors.Is(err, pool.ErrBackendAlreadyExists) {
 			status = http.StatusConflict
 		}
 		h.writeJSON(w, status, map[string]string{"error": err.Error()})
@@ -165,10 +163,4 @@ func (h *Handler) writeJSON(w http.ResponseWriter, status int, payload any) {
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 	}
-}
-
-var errDuplicateBackend = errors.New("duplicate backend")
-
-func (h *Handler) createBackendID(poolID string, port int) string {
-	return fmt.Sprintf("%s-%s", poolID, strconv.Itoa(port))
 }
