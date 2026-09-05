@@ -3,6 +3,7 @@ package routing
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/marcusaroldan/load-balancer/internal/pool"
@@ -87,8 +88,19 @@ func (s *RoundRobinStrategy) Select(p *pool.Pool) (*pool.Backend, error) {
 		return nil, errors.New("pool is required")
 	}
 
+	ids := make([]string, 0, len(p.Backends))
+	for id := range p.Backends {
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil, errors.New("no healthy backends available")
+	}
+	ids = slices.Clone(ids)
+	slices.Sort(ids)
+
 	healthy := make([]*pool.Backend, 0, len(p.Backends))
-	for _, backend := range p.Backends {
+	for _, id := range ids {
+		backend := p.Backends[id]
 		if backend != nil && backend.Healthy {
 			healthy = append(healthy, backend)
 		}
@@ -130,8 +142,15 @@ func (s *WeightedStrategy) Select(p *pool.Pool) (*pool.Backend, error) {
 		return nil, errors.New("pool is required")
 	}
 
+	ids := make([]string, 0, len(p.Backends))
+	for id := range p.Backends {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+
 	healthy := make([]*pool.Backend, 0, len(p.Backends))
-	for _, backend := range p.Backends {
+	for _, id := range ids {
+		backend := p.Backends[id]
 		if backend != nil && backend.Healthy {
 			healthy = append(healthy, backend)
 		}
@@ -182,8 +201,15 @@ func (s *LeastConnectionsStrategy) Select(p *pool.Pool) (*pool.Backend, error) {
 		return nil, errors.New("pool is required")
 	}
 
+	ids := make([]string, 0, len(p.Backends))
+	for id := range p.Backends {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+
 	healthy := make([]*pool.Backend, 0, len(p.Backends))
-	for _, backend := range p.Backends {
+	for _, id := range ids {
+		backend := p.Backends[id]
 		if backend != nil && backend.Healthy {
 			healthy = append(healthy, backend)
 		}

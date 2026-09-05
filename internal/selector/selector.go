@@ -3,6 +3,7 @@ package selector
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/marcusaroldan/load-balancer/internal/pool"
@@ -39,7 +40,13 @@ func (r *RoundRobin) Refresh(p *pool.Pool) {
 	state.healthy = state.healthy[:0]
 	state.unhealthy = make(map[string]*pool.Backend)
 
-	for _, backend := range p.Backends {
+	ids := make([]string, 0, len(p.Backends))
+	for id := range p.Backends {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		backend := p.Backends[id]
 		if backend == nil {
 			continue
 		}
@@ -81,7 +88,13 @@ func (r *RoundRobin) SetHealth(p *pool.Pool, backendID string, healthy bool) err
 	state.healthy = state.healthy[:0]
 	state.unhealthy = make(map[string]*pool.Backend)
 
-	for _, item := range p.Backends {
+	ids := make([]string, 0, len(p.Backends))
+	for id := range p.Backends {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		item := p.Backends[id]
 		if item == nil {
 			continue
 		}
@@ -114,7 +127,13 @@ func (r *RoundRobin) Next(p *pool.Pool) (*pool.Backend, error) {
 	state := r.getOrCreateState(p.ID)
 	if len(state.healthy) == 0 {
 		state.healthy = make([]*pool.Backend, 0)
-		for _, backend := range p.Backends {
+		ids := make([]string, 0, len(p.Backends))
+		for id := range p.Backends {
+			ids = append(ids, id)
+		}
+		slices.Sort(ids)
+		for _, id := range ids {
+			backend := p.Backends[id]
 			if backend != nil && backend.Healthy {
 				state.healthy = append(state.healthy, backend)
 			}

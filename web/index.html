@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Load Balancer Simulator</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Portfolio demo</p>
+          <h1>Load Balancer Simulator</h1>
+        </div>
+        <div class="actions">
+          <select id="scenarioSelect">
+            <option value="stable">Stable</option>
+            <option value="high_latency">High latency</option>
+            <option value="partial_failure">Partial failure</option>
+            <option value="partition">Partition</option>
+            <option value="weighted">Weighted</option>
+          </select>
+          <button id="resetScenario">Reset scenario</button>
+        </div>
+      </header>
+
+      <main class="dashboard">
+        <section class="stats-grid">
+          <article class="stat-card">
+            <label>Strategy</label>
+            <strong id="strategyValue">-</strong>
+          </article>
+          <article class="stat-card">
+            <label>Clients</label>
+            <strong id="clientsValue">-</strong>
+          </article>
+          <article class="stat-card">
+            <label>Request rate</label>
+            <strong id="requestRateValue">-</strong>
+          </article>
+          <article class="stat-card">
+            <label>Backends</label>
+            <strong id="backendCountValue">-</strong>
+          </article>
+        </section>
+
+        <section class="controls-panel">
+          <div class="control-group">
+            <label for="strategyPicker">Balancing strategy</label>
+            <select id="strategyPicker">
+              <option value="round_robin">Round robin</option>
+              <option value="weighted_round_robin">Weighted round robin</option>
+              <option value="least_connections">Least connections</option>
+            </select>
+            <button id="applyStrategy">Apply strategy</button>
+          </div>
+
+          <div class="control-group">
+            <label for="requestRateInput">Request rate</label>
+            <input id="requestRateInput" type="number" min="0" value="30" />
+            <button id="applyRequestRate">Apply request rate</button>
+          </div>
+
+          <div class="control-group">
+            <button id="addClient">Add client</button>
+            <button id="removeClient" class="secondary">Remove client</button>
+          </div>
+
+          <div class="control-group">
+            <input id="newPoolInput" type="text" placeholder="Pool name" />
+            <button id="addPool">Add pool</button>
+            <button id="addBackend" class="secondary">Add backend</button>
+          </div>
+        </section>
+
+        <section class="traffic-panel">
+          <div class="traffic-stream" id="trafficStream"></div>
+        </section>
+
+        <section class="backend-grid" id="backendGrid"></section>
+      </main>
+    </div>
+
+    <div id="backendModal" class="modal hidden" aria-hidden="true">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h3 id="backendModalTitle">Backend</h3>
+          <button type="button" id="closeModal">Close</button>
+        </div>
+        <form id="backendForm">
+          <div class="field-row">
+            <label>Name</label>
+            <input id="backendNameInput" type="text" />
+          </div>
+          <div class="field-row">
+            <label>ID</label>
+            <input id="backendIdInput" type="text" readonly />
+          </div>
+          <div class="field-row">
+            <label>Pool</label>
+            <select id="backendPoolInput"></select>
+          </div>
+          <div class="field-row">
+            <label>Weight</label>
+            <input id="backendWeightInput" type="number" min="1" step="1" />
+          </div>
+          <div class="field-row">
+            <label>Latency</label>
+            <input id="backendLatencyInput" type="text" placeholder="120ms" />
+          </div>
+          <div class="field-row checkbox-row">
+            <label><input id="backendHealthyInput" type="checkbox" /> Healthy</label>
+          </div>
+          <div class="field-row">
+            <label>Failure rate</label>
+            <input id="backendFailureInput" type="number" min="0" max="1" step="0.05" />
+          </div>
+          <div class="modal-actions">
+            <button type="submit" id="saveBackendChanges">Save changes</button>
+            <button type="button" id="deleteBackend" class="danger">Remove backend</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
