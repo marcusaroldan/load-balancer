@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "build:css": "npx @tailwindcss/cli -i ./web/inputs.css -o ./web/styles.css --minify",
+    "watch:css": "npx @tailwindcss/cli -i ./web/inputs.css -o ./web/styles.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "@tailwindcss/typography": "^0.5.20",
+    "tailwindcss": "^4.3.3"
+  }
+}

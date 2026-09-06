@@ -14,10 +14,16 @@ This document is an enterprise-style, ticketized implementation plan you can pic
 - Epic 4: Sandbox / Simulator & Demo UI (frontend to simulate conditions)
 - Epic 5: Ops: CI/CD, containerization, monitoring
 
+Deployment note:
+- The sandbox and portfolio UI are static assets and can be hosted on GitHub Pages.
+- For a custom domain, add a CNAME record pointing to the GitHub Pages site. This keeps the demo static, minimizes hosting overhead, and removes the need for a separate app runtime for the UI layer.
+- The actual load balancer logic remains a separate Go service or local runtime; the GitHub Pages site is only the presentation/simulation layer.
+
 Sprint plan (suggested):
 - Sprint 1 (2 weeks): LB core, simple round-robin, minimal API to add backends (LB-001..LB-005)
 - Sprint 2 (2 weeks): Health checks, persistence, sticky sessions (LB-010..LB-015)
 - Sprint 3 (2 weeks): Advanced algorithms, active-active, simulator UI (LB-020..LB-030)
+- Post-sprint follow-up: Optional observability work for production-grade LB deployment, not required for the static GitHub Pages demo.
 
 ---
 
@@ -139,15 +145,20 @@ LB-021: Demo frontend for portfolio (simple UI)
 - Dependencies: LB-020, LB-005
 - Priority: P2
 
-LB-030: Observability & metrics (Prometheus compatible)
-- Description: Expose metrics: requests, backend latency, backend health, active connections.
+LB-030: Observability & metrics (Prometheus compatible) — optional for static demo, recommended for real LB deployment
+- Description: Expose metrics for the Go LB service: requests, backend latency, backend health, active connections. This is valuable for a real production service but is not required for the static GitHub Pages simulator demo, where the simulator already exposes the state the user needs to observe.
 - Acceptance Criteria:
-	- `/metrics` endpoint with Prometheus-format metrics
-	- Basic Grafana dashboard JSON (optional)
+	- `/metrics` endpoint with Prometheus-format metrics when running the LB outside GitHub Pages
+	- Basic Grafana dashboard JSON (optional) for production monitoring
 	- Tests or smoke checks to validate metrics output
 - Estimate: 6 hours
 - Dependencies: LB-002
-- Priority: P1
+- Priority: P2 for the static demo; P1 for production service deployment
+- Notes:
+	- For the GitHub Pages strategy, the public site is static front-end content and does not itself require a metrics endpoint.
+	- Observability is still useful for diagnosing real request traffic, backend drift, and server health when the LB runs as a separate service.
+	- Current simulator and dashboard already render the key operational signals needed for demo use: health checks, latency, failure rates, pool membership, and active load.
+	- If the team is optimizing for low overhead and minimal maintenance, LB-030 can be deferred until there is an actual non-static LB deployment to monitor.
 
 LB-040: CI/CD and containerization
 - Description: Add Dockerfile(s), GitHub Actions to build images, and a simple deployment doc for the sandbox.

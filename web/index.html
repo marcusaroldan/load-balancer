@@ -3,127 +3,177 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f8fafc" />
     <title>Load Balancer Simulator</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./theme-engine.js"></script>
   </head>
-  <body>
-    <div class="page-shell">
-      <header class="topbar">
+  <body class="bg-canvas text-neutral-body antialiased">
+    <div class="page-shell mx-auto max-w-6xl px-5 pb-16 pt-8">
+      <header class="topbar flex items-center justify-between gap-6 pb-6">
         <div>
-          <p class="eyebrow">Portfolio demo</p>
-          <h1>Load Balancer Simulator</h1>
+          <h1 class="text-brand text-3xl font-bold tracking-tight">Load Balancer Simulator</h1>
         </div>
-        <div class="actions">
-          <select id="scenarioSelect">
-            <option value="stable">Stable</option>
-            <option value="high_latency">High latency</option>
-            <option value="partial_failure">Partial failure</option>
-            <option value="partition">Partition</option>
-            <option value="weighted">Weighted</option>
-          </select>
-          <button id="resetScenario">Reset scenario</button>
+        <div class="actions flex flex-wrap items-center gap-3">
+          <div class="scenario-control flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2">
+            <label for="scenarioSelect" class="text-xs font-semibold uppercase tracking-[0.14em] text-neutral-muted">Scenario: </label>
+            <select id="scenarioSelect" class="bg-transparent text-neutral-body outline-none">
+              <option value="stable">Stable</option>
+              <option value="high_latency">High latency</option>
+              <option value="partial_failure">Partial failure</option>
+              <option value="partition">Partition</option>
+              <option value="weighted">Weighted</option>
+            </select>
+          </div>
+          <button id="theme-toggle" type="button" aria-label="Toggle structural theme colors" class="button-primary rounded-lg p-2">
+            <svg id="theme-toggle-light-icon" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M16.243 17.657l.707.707M6.343 6.364l.707.707M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <svg id="theme-toggle-dark-icon" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+          </button>
+          <button id="resetScenario" class="button-primary rounded-xl px-3 py-2">Reset scenario</button>
         </div>
       </header>
 
-      <main class="dashboard">
-        <section class="stats-grid">
-          <article class="stat-card">
-            <label>Strategy</label>
-            <strong id="strategyValue">-</strong>
+      <main class="dashboard grid gap-5">
+
+      <section class="instructions-panel rounded-2xl border border-border bg-surface p-4 shadow-sm">
+          <details class="simulator-instructions" open>
+            <summary class="text-neutral-heading">What is this simulator?</summary>
+            <div class="instructions-body">
+              <p>This simulator shows how a load balancer spreads traffic across backend servers in a dynamic network environment. Its purpose is to showcase the load balancer software I built and how it responds to changing network environments and balancing configurations. The simulator creates mock clients and backends alongside real HTTP requests that get sent to an actual instance of the load balancer which determines the request routing and returns the responses back to the client.</p>
+              <div class="instruction-groups">
+                <details>
+                  <summary>Scenarios:</summary>
+                  <p>Each scenario models a different operating condition, such as stable traffic, overloaded backends, partial failures, or network partitions. These presets make it easier to see how the balancer reacts to different real-world events.</p>
+                </details>
+                <details>
+                  <summary>Balancing strategies:</summary>
+                  <ul>
+                    <li><em>- Round Robin:</em> rotate traffic evently to each backend.</li>
+                    <li><em>- Weighted Round Robin:</em> backends can be marked with integer weights with heavier backends being given more traffic. This strategy can be useful when the backend machines are of varying power or capacity.</li>
+                    <li><em>- Least Connections:</em> sends traffic to the least-busy server. This strategy can be useful when request processing time is variable, where regular round robin can end up with hot-servers.</li>
+                  </ul>
+                </details>
+                <details>
+                  <summary>Technical details:</summary>
+                  <p>The load balancer itself is a real HTTP routing component that receives client requests, evaluates the active backend pool, and applies a selection strategy such as round robin, weighted round robin, or least connections. It tracks backend health, active connections, request rate, and observed latency so it can adapt traffic distribution during failures or degraded conditions.</p>
+                </details>
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <section class="stats-grid grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <article class="stat-card rounded-2xl border border-border bg-surface p-4 shadow-sm">
+            <label class="text-neutral-muted">Strategy:</label>
+            <strong id="strategyValue" class="text-neutral-heading">-</strong>
           </article>
-          <article class="stat-card">
-            <label>Clients</label>
-            <strong id="clientsValue">-</strong>
+          <article class="stat-card rounded-2xl border border-border bg-surface p-4 shadow-sm">
+            <label class="text-neutral-muted">Clients:</label>
+            <strong id="clientsValue" class="text-neutral-heading">-</strong>
           </article>
-          <article class="stat-card">
-            <label>Request rate</label>
-            <strong id="requestRateValue">-</strong>
+          <article class="stat-card rounded-2xl border border-border bg-surface p-4 shadow-sm">
+            <label class="text-neutral-muted">Request rate:</label>
+            <strong id="requestRateValue" class="text-neutral-heading">-</strong>
           </article>
-          <article class="stat-card">
-            <label>Backends</label>
-            <strong id="backendCountValue">-</strong>
+          <article class="stat-card rounded-2xl border border-border bg-surface p-4 shadow-sm">
+            <label class="text-neutral-muted">Backends:</label>
+            <strong id="backendCountValue" class="text-neutral-heading">-</strong>
           </article>
         </section>
 
-        <section class="controls-panel">
-          <div class="control-group">
-            <label for="strategyPicker">Balancing strategy</label>
-            <select id="strategyPicker">
+        <section class="controls-panel flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm">
+          <div class="control-group flex flex-wrap items-center gap-3">
+            <label for="strategyPicker" class="text-neutral-muted">Balancing strategy:</label>
+            <select id="strategyPicker" class="rounded-xl border border-border bg-surface px-3 py-2 text-neutral-body">
               <option value="round_robin">Round robin</option>
               <option value="weighted_round_robin">Weighted round robin</option>
               <option value="least_connections">Least connections</option>
             </select>
-            <button id="applyStrategy">Apply strategy</button>
+            <button id="applyStrategy" class="button-primary rounded-xl px-3 py-2">Apply strategy</button>
           </div>
 
-          <div class="control-group">
-            <label for="requestRateInput">Request rate</label>
-            <input id="requestRateInput" type="number" min="0" value="30" />
-            <button id="applyRequestRate">Apply request rate</button>
+          <div class="control-group flex flex-wrap items-center gap-3">
+            <label for="requestRateInput" class="text-neutral-muted">Request rate:</label>
+            <input id="requestRateInput" type="number" min="0" value="30" class="rounded-xl border border-border bg-surface px-3 py-2 text-neutral-body" />
+            <button id="applyRequestRate" class="button-primary rounded-xl px-3 py-2">Apply request rate</button>
           </div>
 
-          <div class="control-group">
-            <button id="addClient">Add client</button>
-            <button id="removeClient" class="secondary">Remove client</button>
+          <div class="control-group flex flex-wrap items-center gap-3">
+            <label for="addClient" class="text-neutral-muted">Modify Clients:</label>
+            <button id="addClient" class="button-primary rounded-xl px-3 py-2">Add client</button>
+            <button id="removeClient" class="button-primary rounded-xl px-3 py-2">Remove client</button>
           </div>
 
-          <div class="control-group">
-            <input id="newPoolInput" type="text" placeholder="Pool name" />
-            <button id="addPool">Add pool</button>
-            <button id="addBackend" class="secondary">Add backend</button>
+          <div class="control-group flex flex-wrap items-center gap-3">
+            <label for="newPoolInput" class="text-neutral-muted">Modify Backend Pools:</label>
+            <input id="newPoolInput" type="text" placeholder="Pool name" class="rounded-xl border border-border bg-surface px-3 py-2 text-neutral-body placeholder:text-neutral-muted" />
+            <button id="addPool" class="button-primary rounded-xl px-3 py-2">Add pool</button>
+            <button id="addBackend" class="button-primary rounded-xl px-3 py-2">Add backend</button>
           </div>
         </section>
 
-        <section class="traffic-panel">
-          <div class="traffic-stream" id="trafficStream"></div>
+        <section class="traffic-panel rounded-2xl border border-border bg-surface p-4 shadow-sm">
+          <div class="panel-heading mb-3">
+            <h2 class="text-neutral-heading">Traffic simulator</h2>
+          </div>
+          <div class="traffic-stream border border-border bg-canvas" id="trafficStream"></div>
         </section>
 
-        <section class="backend-grid" id="backendGrid"></section>
+        <section class="backend-panel rounded-2xl border border-border bg-surface p-4 shadow-sm">
+          <div class="panel-heading mb-3">
+            <h2 class="text-neutral-heading">Backend details</h2>
+          </div>
+          <div class="backend-grid grid gap-4" id="backendGrid"></div>
+        </section>
       </main>
     </div>
 
     <div id="backendModal" class="modal hidden" aria-hidden="true">
-      <div class="modal-panel">
-        <div class="modal-header">
-          <h3 id="backendModalTitle">Backend</h3>
-          <button type="button" id="closeModal">Close</button>
+      <div class="modal-panel rounded-2xl border border-border bg-surface shadow-lg">
+        <div class="modal-header flex items-center justify-between gap-3">
+          <h3 id="backendModalTitle" class="text-neutral-heading">Backend</h3>
+          <button type="button" id="closeModal" class="button-primary rounded-xl px-3 py-2">Close</button>
         </div>
-        <form id="backendForm">
-          <div class="field-row">
-            <label>Name</label>
-            <input id="backendNameInput" type="text" />
+        <form id="backendForm" class="modal-form">
+          <div class="field-group">
+            <label class="text-neutral-muted">Name</label>
+            <input id="backendNameInput" type="text" class="rounded-xl border border-border bg-surface px-3 py-2 text-neutral-body" />
           </div>
-          <div class="field-row">
-            <label>ID</label>
-            <input id="backendIdInput" type="text" readonly />
+          <div class="field-group">
+            <label class="text-neutral-muted">ID</label>
+            <input id="backendIdInput" type="text" readonly class="rounded-xl border border-border bg-surface px-3 py-2 text-neutral-body" />
           </div>
-          <div class="field-row">
-            <label>Pool</label>
-            <select id="backendPoolInput"></select>
+          <div class="field-group">
+            <label class="text-neutral-muted">Pool</label>
+            <select id="backendPoolInput" class="rounded-xl border border-border bg-surface px-3 py-2 text-neutral-body"></select>
           </div>
-          <div class="field-row">
-            <label>Weight</label>
-            <input id="backendWeightInput" type="number" min="1" step="1" />
+          <div class="field-group">
+            <label class="text-neutral-muted">Weight</label>
+            <input id="backendWeightInput" type="number" min="1" step="1" class="rounded-xl border border-border bg-surface px-3 py-2 text-neutral-body" />
           </div>
-          <div class="field-row">
-            <label>Latency</label>
-            <input id="backendLatencyInput" type="text" placeholder="120ms" />
+          <div class="field-group">
+            <label class="text-neutral-muted">Latency</label>
+            <input id="backendLatencyInput" type="text" placeholder="120ms" class="rounded-xl border border-border bg-surface px-3 py-2 text-neutral-body" />
           </div>
-          <div class="field-row checkbox-row">
-            <label><input id="backendHealthyInput" type="checkbox" /> Healthy</label>
+          <div class="field-group checkbox-row">
+            <label class="flex items-center gap-2 text-neutral-muted"><input id="backendHealthyInput" type="checkbox" class="accent-brand" /> Healthy</label>
           </div>
-          <div class="field-row">
-            <label>Failure rate</label>
-            <input id="backendFailureInput" type="number" min="0" max="1" step="0.05" />
+          <div class="field-group">
+            <label class="text-neutral-muted">Failure rate</label>
+            <input id="backendFailureInput" type="number" min="0" max="1" step="0.05" class="rounded-xl border border-border bg-surface px-3 py-2 text-neutral-body" />
           </div>
-          <div class="modal-actions">
-            <button type="submit" id="saveBackendChanges">Save changes</button>
-            <button type="button" id="deleteBackend" class="danger">Remove backend</button>
+          <div class="modal-actions flex justify-end gap-3 pt-2">
+            <button type="submit" id="saveBackendChanges" class="button-primary rounded-xl px-3 py-2">Save changes</button>
+            <button type="button" id="deleteBackend" class="button-primary rounded-xl px-3 py-2">Remove backend</button>
           </div>
         </form>
       </div>
     </div>
 
-    <script src="/app.js"></script>
+    <script src="./app.js"></script>
   </body>
 </html>

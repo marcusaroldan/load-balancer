@@ -2,3 +2,4 @@
 *.exe
 *.out
 coverage.out
+node_modules/

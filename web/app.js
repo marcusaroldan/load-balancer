@@ -34,33 +34,69 @@ const LIVE_BACKEND_REFRESH_MS = 200;
 const SUMMARY_REFRESH_MS = 1000;
 let lastSummaryRenderAt = 0;
 
-function formatDurationText(value) {
+function parseDurationNanoseconds(value) {
   if (value === null || value === undefined || value === '') {
-    return '0ms';
+    return 0;
   }
 
   if (typeof value === 'number') {
-    if (value >= 1_000_000) {
-      return `${Math.round(value / 1_000_000)}ms`;
-    }
-    return `${value}ns`;
+    if (!Number.isFinite(value)) return 0;
+    return value;
   }
 
   const text = String(value).trim();
-  if (!text) return '0ms';
+  if (!text) return 0;
+
   if (/^\d+$/.test(text)) {
-    const nanos = Number(text);
-    if (nanos >= 1_000_000) {
-      return `${Math.round(nanos / 1_000_000)}ms`;
-    }
-    return `${nanos}ns`;
+    return Number(text);
   }
-  return text;
+
+  const match = text.match(/^(-?\d+(?:\.\d+)?)(ns|us|µs|ms|s)?$/i);
+  if (!match) {
+    return 0;
+  }
+
+  const amount = Number(match[1]);
+  const unit = (match[2] || 'ms').toLowerCase();
+
+  switch (unit) {
+    case 'ns':
+      return amount;
+    case 'us':
+    case 'µs':
+      return amount * 1_000;
+    case 'ms':
+      return amount * 1_000_000;
+    case 's':
+      return amount * 1_000_000_000;
+    default:
+      return amount;
+  }
+}
+
+function formatDurationText(value) {
+  const nanos = parseDurationNanoseconds(value);
+
+  if (nanos === 0) {
+    return '0ms';
+  }
+
+  if (nanos >= 1_000_000_000) {
+    return `${(nanos / 1_000_000_000).toFixed(2)}s`;
+  }
+  if (nanos >= 1_000_000) {
+    return `${Math.round(nanos / 1_000_000)}ms`;
+  }
+  if (nanos >= 1_000) {
+    return `${(nanos / 1_000).toFixed(2)}µs`;
+  }
+  return `${Math.round(nanos)}ns`;
 }
 
 function getBackendStatus(backend) {
   if (!backend.healthy) return 'unhealthy';
-  if (backend.load_percent >= 80 || backend.latency > 250) return 'slow';
+  const latencyMs = parseDurationNanoseconds(backend.latency) / 1_000_000;
+  if (backend.load_percent >= 80 || latencyMs > 250) return 'slow';
   return 'healthy';
 }
 
@@ -111,9 +147,20 @@ function renderSummary() {
 
 function renderBackendView() {
   const clientNodes = Array.from({ length: Math.max(1, state.clients) }, (_, index) => `
-    <div class="client-node">
-      <strong>Client ${index + 1}</strong>
-      <small>${state.requestRate} req/s</small>
+    <div class="client-node node-card">
+      <div class="node-header">
+        <span class="node-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="12" rx="2"></rect>
+            <path d="M8 20h8"></path>
+            <path d="M12 16v4"></path>
+          </svg>
+        </span>
+        <div>
+          <strong>Client ${index + 1}</strong>
+          <small>${state.requestRate} req/s</small>
+        </div>
+      </div>
     </div>
   `).join('');
 
@@ -128,11 +175,30 @@ function renderBackendView() {
     const backendNodes = backends.map((backend) => {
       const status = getBackendStatus(backend);
       const load = Math.max(8, Number(backend.load_percent || 0));
+      const latencyLabel = formatDurationText(backend.latency);
       return `
-        <div class="backend-node ${status === 'healthy' ? '' : status}" data-backend-id="${backend.id}" title="Edit ${backend.id}">
-          <div>
-            <strong>${backend.id}</strong><br />
-            <small>${backend.active_connections ?? 0} active / ${backend.latency} ms</small>
+        <div class="backend-node node-card ${status === 'healthy' ? '' : status}" data-backend-id="${backend.id}" title="Edit ${backend.id}">
+          <div class="node-header">
+            <span class="node-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="4" width="16" height="4" rx="1.4"></rect>
+                <circle cx="8" cy="6" r="0.9" fill="currentColor" stroke="none"></circle>
+                <circle cx="12" cy="6" r="0.9" fill="currentColor" stroke="none"></circle>
+                <circle cx="16" cy="6" r="0.9" fill="currentColor" stroke="none"></circle>
+                <rect x="4" y="10" width="16" height="4" rx="1.4"></rect>
+                <circle cx="8" cy="12" r="0.9" fill="currentColor" stroke="none"></circle>
+                <circle cx="12" cy="12" r="0.9" fill="currentColor" stroke="none"></circle>
+                <circle cx="16" cy="12" r="0.9" fill="currentColor" stroke="none"></circle>
+                <rect x="4" y="16" width="16" height="4" rx="1.4"></rect>
+                <circle cx="8" cy="18" r="0.9" fill="currentColor" stroke="none"></circle>
+                <circle cx="12" cy="18" r="0.9" fill="currentColor" stroke="none"></circle>
+                <circle cx="16" cy="18" r="0.9" fill="currentColor" stroke="none"></circle>
+              </svg>
+            </span>
+            <div>
+              <strong>${backend.id}</strong><br />
+              <small>${backend.active_connections ?? 0} active / ${latencyLabel}</small>
+            </div>
           </div>
           <div class="load-display">
             <small>${load}% busy</small>
@@ -145,7 +211,7 @@ function renderBackendView() {
     return `
       <div class="pool-group">
         <div class="pool-label">${pool}</div>
-        <div class="pool-body">${backendNodes || '<div class="backend-node"><strong>No backends</strong></div>'}</div>
+        <div class="pool-body">${backendNodes || '<div class="backend-node node-card"><strong>No backends</strong></div>'}</div>
       </div>
     `;
   }).join('');
@@ -154,9 +220,17 @@ function renderBackendView() {
     <div class="traffic-scene">
       <div class="client-column">${clientNodes}</div>
       <div class="lb-column">
-        <div class="lb-node">LB</div>
+        <div class="lb-node node-card">
+          <span class="node-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 12h6l2-6 4 12 2-6h4"></path>
+              <circle cx="12" cy="12" r="10"></circle>
+            </svg>
+          </span>
+          <span class="node-label">Load Balancer</span>
+        </div>
       </div>
-      <div class="backend-column">${poolGroups || '<div class="backend-node"><strong>No backends</strong></div>'}</div>
+      <div class="backend-column">${poolGroups || '<div class="backend-node node-card"><strong>No backends</strong></div>'}</div>
     </div>
   `;
 
@@ -174,6 +248,7 @@ function renderBackendView() {
     const label = status === 'healthy' ? 'healthy' : status === 'slow' ? 'slow' : 'unhealthy';
     const load = Math.max(0, Number(backend.load_percent || 0));
     const displayName = backend.name || backend.id;
+    const latencyLabel = formatDurationText(backend.latency);
 
     card.innerHTML = `
       <div class="pool-header-row">
@@ -185,7 +260,7 @@ function renderBackendView() {
       </div>
       <p>Pool: ${backend.pool || 'default'}</p>
       <p>URL: ${backend.url}</p>
-      <p>Latency: ${backend.latency} ms</p>
+      <p>Latency: ${latencyLabel}</p>
       <p>Weight: ${backend.weight}</p>
       <p>Active connections: ${backend.active_connections ?? 0}</p>
       <p>Failure rate: ${backend.failure_rate}</p>
