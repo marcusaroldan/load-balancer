@@ -213,6 +213,16 @@ func (a *RealLoadBalancerAdapter) SetBackendFailureRate(backendID string, rate f
 	})
 }
 
+func (a *RealLoadBalancerAdapter) RemoveBackend(backendID string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, ok := a.configs[backendID]; !ok {
+		return fmt.Errorf("backend %s not found", backendID)
+	}
+	delete(a.configs, backendID)
+	return a.rebuildStoreLocked()
+}
+
 func (a *RealLoadBalancerAdapter) Snapshot() LoadBalancerSnapshot {
 	a.mu.RLock()
 	name := a.name

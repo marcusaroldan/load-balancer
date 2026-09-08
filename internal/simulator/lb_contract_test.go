@@ -18,6 +18,7 @@ func TestLoadBalancerAdapterContractAllowsOnlyExternalControls(t *testing.T) {
 		"SetBackendHealth":      true,
 		"SetBackendLatency":     true,
 		"SetBackendFailureRate": true,
+		"RemoveBackend":         true,
 		"Snapshot":              true,
 	}
 

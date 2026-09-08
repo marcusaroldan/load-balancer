@@ -130,6 +130,23 @@ func TestHarnessShowsActiveConnectionsDuringTraffic(t *testing.T) {
 	}, "traffic should keep at least one backend busy long enough to observe active connections")
 }
 
+func TestHarnessGeneratesTrafficThroughRealLoadBalancer(t *testing.T) {
+	h, err := NewHarness(PresetScenarioConfigs["stable"])
+	if err != nil {
+		t.Fatalf("new harness: %v", err)
+	}
+	defer h.Stop()
+
+	waitForCondition(t, 3*time.Second, func() bool {
+		snapshot := h.loadBalancer.Snapshot()
+		return snapshot.RequestCount > 0 && snapshot.SuccessfulRequests > 0
+	}, "harness traffic should be observed by the real load balancer")
+
+	if endpoint := h.loadBalancer.Endpoint(); endpoint == "" {
+		t.Fatal("real load balancer endpoint should be available while harness is running")
+	}
+}
+
 func TestScenarioPresetsExist(t *testing.T) {
 	for _, name := range []string{"stable", "high_latency", "partial_failure", "partition", "weighted"} {
 		cfg, ok := PresetScenarioConfigs[name]

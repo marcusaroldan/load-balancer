@@ -20,6 +20,7 @@ type LoadBalancerAdapter interface {
 	SetBackendHealth(backendID string, healthy bool) error
 	SetBackendLatency(backendID string, latency time.Duration) error
 	SetBackendFailureRate(backendID string, rate float64) error
+	RemoveBackend(backendID string) error
 	Snapshot() LoadBalancerSnapshot
 }
 
@@ -110,6 +111,13 @@ func (a *NoopLoadBalancerAdapter) SetBackendFailureRate(backendID string, rate f
 	}
 	if rate < 0 || rate > 1 {
 		return fmt.Errorf("failure rate must be between 0 and 1")
+	}
+	return nil
+}
+
+func (a *NoopLoadBalancerAdapter) RemoveBackend(backendID string) error {
+	if backendID == "" {
+		return fmt.Errorf("backend id is required")
 	}
 	return nil
 }

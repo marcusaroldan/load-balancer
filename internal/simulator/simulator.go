@@ -6,7 +6,9 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -107,15 +109,16 @@ type BackendState struct {
 
 // Harness manages multiple simulated backend servers and scenario presets.
 type Harness struct {
-	mu          sync.RWMutex
-	name        string
-	strategy    string
-	clients     int
-	requestRate int
-	pools       map[string]struct{}
-	backends    map[string]*Backend
-	servers     []*http.Server
-	stop        chan struct{}
+	mu           sync.RWMutex
+	name         string
+	strategy     string
+	clients      int
+	requestRate  int
+	pools        map[string]struct{}
+	backends     map[string]*Backend
+	servers      []*http.Server
+	stop         chan struct{}
+	loadBalancer LoadBalancerAdapter
 }
 
 // PresetScenarioConfigs contains ready-made network and balancing conditions.
@@ -185,6 +188,11 @@ func NewHarness(cfg ScenarioConfig) (*Harness, error) {
 		backends:    make(map[string]*Backend),
 		stop:        make(chan struct{}),
 	}
+	adapter, err := NewAdapterFactory()()
+	if err != nil {
+		return nil, fmt.Errorf("create load balancer adapter: %w", err)
+	}
+	h.loadBalancer = adapter
 
 	for _, backendCfg := range cfg.Backends {
 		backend, err := newBackend(backendCfg)
@@ -194,6 +202,14 @@ func NewHarness(cfg ScenarioConfig) (*Harness, error) {
 		h.pools[backend.Pool] = struct{}{}
 		h.backends[backend.ID] = backend
 		h.servers = append(h.servers, backend.server)
+	}
+	if err := h.configureLoadBalancer(); err != nil {
+		h.Stop()
+		return nil, err
+	}
+	if err := h.loadBalancer.Start(); err != nil {
+		h.Stop()
+		return nil, err
 	}
 	go h.runTrafficLoop()
 	return h, nil
@@ -292,6 +308,9 @@ func (h *Harness) SetStrategy(strategy string) error {
 		return fmt.Errorf("strategy is required")
 	}
 
+	if err := h.loadBalancer.SetStrategy(strategy); err != nil {
+		return err
+	}
 	h.mu.Lock()
 	h.strategy = strategy
 	h.mu.Unlock()
@@ -349,8 +368,15 @@ func (h *Harness) SetBackendPool(id, pool string) error {
 		pool = defaultPoolName
 	}
 	backend.mu.Lock()
+	previousPool := backend.Pool
 	backend.Pool = pool
 	backend.mu.Unlock()
+	if err := h.loadBalancer.SetBackendPool(id, pool); err != nil {
+		backend.mu.Lock()
+		backend.Pool = previousPool
+		backend.mu.Unlock()
+		return err
+	}
 	h.mu.Lock()
 	h.pools[pool] = struct{}{}
 	h.mu.Unlock()
@@ -369,6 +395,9 @@ func (h *Harness) SetWeight(id string, weight int) error {
 	backend.mu.Lock()
 	backend.Weight = weight
 	backend.mu.Unlock()
+	if err := h.loadBalancer.SetBackendWeight(id, weight); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -393,6 +422,10 @@ func (h *Harness) AddBackend(id, address string, port int, weight int, latency t
 	h.pools[backend.Pool] = struct{}{}
 	h.servers = append(h.servers, backend.server)
 	h.mu.Unlock()
+	if err := h.configureLoadBalancer(); err != nil {
+		_ = h.RemoveBackend(id)
+		return nil, err
+	}
 	return backend, nil
 }
 
@@ -420,9 +453,18 @@ func (h *Harness) SetHealthy(id string, healthy bool) error {
 	}
 
 	backend.mu.Lock()
+	previousHealthy := backend.Healthy
+	previousFailing := backend.Failing
 	backend.Healthy = healthy
 	backend.Failing = !healthy
 	backend.mu.Unlock()
+	if err := h.loadBalancer.SetBackendHealth(id, healthy); err != nil {
+		backend.mu.Lock()
+		backend.Healthy = previousHealthy
+		backend.Failing = previousFailing
+		backend.mu.Unlock()
+		return err
+	}
 	return nil
 }
 
@@ -434,8 +476,15 @@ func (h *Harness) SetLatency(id string, latency time.Duration) error {
 	}
 
 	backend.mu.Lock()
+	previousLatency := backend.Latency
 	backend.Latency = latency
 	backend.mu.Unlock()
+	if err := h.loadBalancer.SetBackendLatency(id, latency); err != nil {
+		backend.mu.Lock()
+		backend.Latency = previousLatency
+		backend.mu.Unlock()
+		return err
+	}
 	return nil
 }
 
@@ -450,8 +499,15 @@ func (h *Harness) SetFailureRate(id string, rate float64) error {
 	}
 
 	backend.mu.Lock()
+	previousRate := backend.FailureRate
 	backend.FailureRate = rate
 	backend.mu.Unlock()
+	if err := h.loadBalancer.SetBackendFailureRate(id, rate); err != nil {
+		backend.mu.Lock()
+		backend.FailureRate = previousRate
+		backend.mu.Unlock()
+		return err
+	}
 	return nil
 }
 
@@ -464,6 +520,9 @@ func (h *Harness) RemoveBackend(id string) error {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if err := h.loadBalancer.RemoveBackend(id); err != nil {
+		return err
+	}
 
 	if backend.server != nil {
 		_ = backend.server.Close()
@@ -515,6 +574,9 @@ func (h *Harness) ResetScenario(name string) error {
 		h.backends[backend.ID] = backend
 		h.servers = append(h.servers, backend.server)
 	}
+	if err := h.configureLoadBalancerLocked(); err != nil {
+		return err
+	}
 	go h.runTrafficLoop()
 	return nil
 }
@@ -533,6 +595,9 @@ func (h *Harness) Stop() {
 		if backend.listener != nil {
 			_ = backend.listener.Close()
 		}
+	}
+	if h.loadBalancer != nil {
+		_ = h.loadBalancer.Stop()
 	}
 	h.pools = make(map[string]struct{})
 	h.backends = make(map[string]*Backend)
@@ -553,32 +618,59 @@ func (h *Harness) runTrafficLoop() {
 				h.mu.RUnlock()
 				continue
 			}
-			backends := make([]*Backend, 0, len(h.backends))
-			for _, backend := range h.backends {
-				if backend != nil && backend.Healthy {
-					backends = append(backends, backend)
-				}
-			}
 			requestRate := h.requestRate
+			endpoint := h.loadBalancer.Endpoint()
 			h.mu.RUnlock()
-			if len(backends) == 0 {
+			if endpoint == "" {
 				continue
 			}
 			for i := 0; i < max(1, requestRate/trafficBurstFactor); i++ {
-				backend := backends[i%len(backends)]
-				go func(backend *Backend) {
-					if backend == nil {
-						return
-					}
-					resp, err := http.Get(backend.URL)
+				go func() {
+					resp, err := http.Get(endpoint)
 					if err != nil {
 						return
 					}
 					_ = resp.Body.Close()
-				}(backend)
+				}()
 			}
 		}
 	}
+}
+
+func (h *Harness) configureLoadBalancer() error {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.configureLoadBalancerLocked()
+}
+
+func (h *Harness) configureLoadBalancerLocked() error {
+	scenario := ScenarioConfig{Name: h.name, Strategy: h.strategy, Backends: make([]BackendConfig, 0, len(h.backends))}
+	for _, backend := range h.backends {
+		backend.mu.RLock()
+		parsed, err := url.Parse(backend.URL)
+		if err != nil {
+			backend.mu.RUnlock()
+			return fmt.Errorf("parse backend %s URL: %w", backend.ID, err)
+		}
+		port, err := strconv.Atoi(parsed.Port())
+		if err != nil {
+			backend.mu.RUnlock()
+			return fmt.Errorf("parse backend %s port: %w", backend.ID, err)
+		}
+		scenario.Backends = append(scenario.Backends, BackendConfig{
+			ID:          backend.ID,
+			Address:     parsed.Hostname(),
+			Port:        port,
+			Weight:      backend.Weight,
+			Latency:     backend.Latency,
+			Healthy:     backend.Healthy,
+			Failing:     backend.Failing,
+			FailureRate: backend.FailureRate,
+			Pool:        backend.Pool,
+		})
+		backend.mu.RUnlock()
+	}
+	return h.loadBalancer.ConfigureScenario(scenario)
 }
 
 func randomProcessingDelay() time.Duration {
