@@ -83,12 +83,13 @@ type Backend struct {
 // configuration, but it intentionally does not expose any internal load-balancer routing state,
 // selected target, request destination, or routing decisions. Those belong to the real LB.
 type SimulationState struct {
-	Name        string         `json:"name"`
-	Strategy    string         `json:"strategy"`
-	Clients     int            `json:"clients"`
-	RequestRate int            `json:"request_rate"`
-	Pools       []string       `json:"pools"`
-	Backends    []BackendState `json:"backends"`
+	Name         string               `json:"name"`
+	Strategy     string               `json:"strategy"`
+	Clients      int                  `json:"clients"`
+	RequestRate  int                  `json:"request_rate"`
+	Pools        []string             `json:"pools"`
+	Backends     []BackendState       `json:"backends"`
+	LoadBalancer LoadBalancerSnapshot `json:"load_balancer"`
 }
 
 // BackendState is a serialized subset of backend runtime state for the UI.
@@ -211,7 +212,7 @@ func NewHarness(cfg ScenarioConfig) (*Harness, error) {
 		h.Stop()
 		return nil, err
 	}
-	go h.runTrafficLoop()
+	go h.runTrafficLoop(h.stop)
 	return h, nil
 }
 
@@ -265,9 +266,8 @@ func (h *Harness) State() SimulationState {
 		Backends:    make([]BackendState, 0, len(h.backends)),
 	}
 
-	// The simulator is only a model of the environment. It does not compute
-	// load-balancer decisions or route requests; it reports the current backend
-	// state observed from the running backend listeners and client configuration.
+	// Backend state describes the simulated environment. Aggregate LB outcomes
+	// are reported separately so the UI can distinguish conditions from results.
 	backendIDs := make([]string, 0, len(h.backends))
 	for id := range h.backends {
 		backendIDs = append(backendIDs, id)
@@ -296,6 +296,7 @@ func (h *Harness) State() SimulationState {
 		})
 		backend.mu.RUnlock()
 	}
+	state.LoadBalancer = h.loadBalancer.Snapshot()
 	return state
 }
 
@@ -577,7 +578,7 @@ func (h *Harness) ResetScenario(name string) error {
 	if err := h.configureLoadBalancerLocked(); err != nil {
 		return err
 	}
-	go h.runTrafficLoop()
+	go h.runTrafficLoop(h.stop)
 	return nil
 }
 
@@ -605,12 +606,12 @@ func (h *Harness) Stop() {
 	h.mu.Unlock()
 }
 
-func (h *Harness) runTrafficLoop() {
+func (h *Harness) runTrafficLoop(stop <-chan struct{}) {
 	ticker := time.NewTicker(trafficLoopInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-h.stop:
+		case <-stop:
 			return
 		case <-ticker.C:
 			h.mu.RLock()

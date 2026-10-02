@@ -85,6 +85,35 @@
           </article>
         </section>
 
+        <section class="outcomes-panel rounded-2xl border border-border bg-surface p-4 shadow-sm">
+          <div class="panel-heading mb-3">
+            <h2 class="text-neutral-heading">Load balancer outcomes</h2>
+            <p class="text-neutral-muted">Aggregate results from the real load balancer handling simulator traffic.</p>
+          </div>
+          <div class="stats-grid grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <article class="stat-card rounded-2xl border border-border bg-canvas p-4">
+              <label class="text-neutral-muted">Requests handled:</label>
+              <strong id="lbRequestCountValue" class="text-neutral-heading">0</strong>
+            </article>
+            <article class="stat-card rounded-2xl border border-border bg-canvas p-4">
+              <label class="text-neutral-muted">Success rate:</label>
+              <strong id="lbSuccessRateValue" class="text-neutral-heading">0%</strong>
+            </article>
+            <article class="stat-card rounded-2xl border border-border bg-canvas p-4">
+              <label class="text-neutral-muted">Failed requests:</label>
+              <strong id="lbFailureCountValue" class="text-neutral-heading">0</strong>
+            </article>
+            <article class="stat-card rounded-2xl border border-border bg-canvas p-4">
+              <label class="text-neutral-muted">Average latency:</label>
+              <strong id="lbAverageLatencyValue" class="text-neutral-heading">0ms</strong>
+            </article>
+            <article class="stat-card rounded-2xl border border-border bg-canvas p-4">
+              <label class="text-neutral-muted">Healthy backends:</label>
+              <strong id="lbHealthValue" class="text-neutral-heading">0 / 0</strong>
+            </article>
+          </div>
+        </section>
+
         <section class="controls-panel flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm">
           <div class="control-group flex flex-wrap items-center gap-3">
             <label for="strategyPicker" class="text-neutral-muted">Balancing strategy:</label>

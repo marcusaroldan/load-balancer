@@ -1,9 +1,11 @@
 package simulator
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"sort"
 	"testing"
@@ -59,7 +61,7 @@ func TestSimulationStateMatchesPureSimulatorContract(t *testing.T) {
 		}
 	}
 
-	wantStateKeys := []string{"name", "strategy", "clients", "request_rate", "pools", "backends"}
+	wantStateKeys := []string{"name", "strategy", "clients", "request_rate", "pools", "backends", "load_balancer"}
 	gotStateKeys := make([]string, 0, len(raw))
 	for key := range raw {
 		gotStateKeys = append(gotStateKeys, key)
@@ -72,6 +74,9 @@ func TestSimulationStateMatchesPureSimulatorContract(t *testing.T) {
 
 	if len(state.Backends) == 0 {
 		t.Fatal("state should contain backend records")
+	}
+	if state.LoadBalancer.Strategy != cfg.Strategy {
+		t.Fatalf("expected state to report LB strategy %q, got %q", cfg.Strategy, state.LoadBalancer.Strategy)
 	}
 	backendMap := map[string]any{}
 	backendJson, err := json.Marshal(state.Backends[0])
@@ -91,6 +96,95 @@ func TestSimulationStateMatchesPureSimulatorContract(t *testing.T) {
 	sort.Strings(gotBackendKeys)
 	if !reflect.DeepEqual(gotBackendKeys, wantBackendKeys) {
 		t.Fatalf("unexpected backend keys: got %v want %v", gotBackendKeys, wantBackendKeys)
+	}
+}
+
+func TestSimulationStateReportsAggregateLoadBalancerOutcomes(t *testing.T) {
+	h, err := NewHarness(PresetScenarioConfigs["stable"])
+	if err != nil {
+		t.Fatalf("new harness: %v", err)
+	}
+	defer h.Stop()
+
+	waitForCondition(t, 3*time.Second, func() bool {
+		snapshot := h.State().LoadBalancer
+		return snapshot.RequestCount > 0 && snapshot.SuccessfulRequests > 0
+	}, "state should report completed requests handled by the real load balancer")
+
+	snapshot := h.State().LoadBalancer
+	if snapshot.SuccessfulRequests == 0 {
+		t.Fatal("expected successful LB requests in simulator state")
+	}
+	if snapshot.BackendCount != len(PresetScenarioConfigs["stable"].Backends) {
+		t.Fatalf("expected %d configured LB backends, got %d", len(PresetScenarioConfigs["stable"].Backends), snapshot.BackendCount)
+	}
+	if snapshot.ObservedAt.IsZero() {
+		t.Fatal("expected LB snapshot timestamp")
+	}
+}
+
+func TestPresetScenariosDriveTheRealLoadBalancer(t *testing.T) {
+	for name, cfg := range PresetScenarioConfigs {
+		cfg := cfg
+		t.Run(name, func(t *testing.T) {
+			h, err := NewHarness(cfg)
+			if err != nil {
+				t.Fatalf("new harness: %v", err)
+			}
+			defer h.Stop()
+
+			waitForCondition(t, 5*time.Second, func() bool {
+				snapshot := h.State().LoadBalancer
+				completed := snapshot.SuccessfulRequests + snapshot.FailedRequests
+				return snapshot.RequestCount > 0 && completed > 0 && completed <= snapshot.RequestCount
+			}, "preset traffic should complete through the real load balancer")
+
+			snapshot := h.State().LoadBalancer
+			if snapshot.Name != cfg.Name {
+				t.Fatalf("expected LB scenario %q, got %q", cfg.Name, snapshot.Name)
+			}
+			if snapshot.Strategy != cfg.Strategy {
+				t.Fatalf("expected LB strategy %q, got %q", cfg.Strategy, snapshot.Strategy)
+			}
+			if snapshot.BackendCount != len(cfg.Backends) {
+				t.Fatalf("expected %d LB backends, got %d", len(cfg.Backends), snapshot.BackendCount)
+			}
+			if snapshot.PoolCount == 0 {
+				t.Fatal("expected at least one configured LB pool")
+			}
+		})
+	}
+}
+
+func TestDashboardStateHandlerSerializesRealLBOutcomes(t *testing.T) {
+	h, err := NewHarness(PresetScenarioConfigs["stable"])
+	if err != nil {
+		t.Fatalf("new harness: %v", err)
+	}
+	defer h.Stop()
+
+	waitForCondition(t, 3*time.Second, func() bool {
+		return h.State().LoadBalancer.SuccessfulRequests > 0
+	}, "dashboard state should include completed LB traffic")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/state", bytes.NewReader(nil))
+	NewHTTPHandler(h).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected state handler status 200, got %d", recorder.Code)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode dashboard state: %v", err)
+	}
+	if _, ok := payload["load_balancer"]; !ok {
+		t.Fatal("dashboard state omitted load_balancer outcomes")
+	}
+	for _, forbidden := range []string{"selected_backend", "destination", "route_history", "active_route"} {
+		if _, ok := payload[forbidden]; ok {
+			t.Fatalf("dashboard state exposed forbidden routing field %q", forbidden)
+		}
 	}
 }
 

@@ -311,7 +311,12 @@ func (a *RealLoadBalancerAdapter) serveHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	selectedPool := configuredPools[0]
-	selectedPool.Metadata["strategy"] = strategy
+	metadata := make(map[string]string, len(selectedPool.Metadata)+1)
+	for key, value := range selectedPool.Metadata {
+		metadata[key] = value
+	}
+	metadata["strategy"] = strategy
+	selectedPool.Metadata = metadata
 	policy := make(map[string]routing.BackendPolicy, len(selectedPool.Backends))
 	a.mu.RLock()
 	for id, config := range a.configs {

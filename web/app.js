@@ -3,13 +3,27 @@ const state = {
   clients: 0,
   requestRate: 0,
   pools: [],
-  backends: []
+  backends: [],
+  loadBalancer: {
+    request_count: 0,
+    successful_requests: 0,
+    failed_requests: 0,
+    average_latency_ms: 0,
+    pool_count: 0,
+    backend_count: 0,
+    healthy_backends: 0
+  }
 };
 
 const strategyValue = document.getElementById('strategyValue');
 const clientsValue = document.getElementById('clientsValue');
 const requestRateValue = document.getElementById('requestRateValue');
 const backendCountValue = document.getElementById('backendCountValue');
+const lbRequestCountValue = document.getElementById('lbRequestCountValue');
+const lbSuccessRateValue = document.getElementById('lbSuccessRateValue');
+const lbFailureCountValue = document.getElementById('lbFailureCountValue');
+const lbAverageLatencyValue = document.getElementById('lbAverageLatencyValue');
+const lbHealthValue = document.getElementById('lbHealthValue');
 const backendGrid = document.getElementById('backendGrid');
 const trafficStream = document.getElementById('trafficStream');
 const strategyPicker = document.getElementById('strategyPicker');
@@ -109,6 +123,7 @@ async function fetchState() {
   state.requestRate = Number(next.request_rate || 0);
   state.pools = next.pools || [];
   state.backends = next.backends || [];
+  state.loadBalancer = next.load_balancer || state.loadBalancer;
 
   const now = Date.now();
   if (now - lastSummaryRenderAt >= SUMMARY_REFRESH_MS) {
@@ -136,6 +151,17 @@ function renderSummary() {
   clientsValue.textContent = String(state.clients);
   requestRateValue.textContent = `${state.requestRate} req/s`;
   backendCountValue.textContent = String(state.backends.length);
+
+  const requests = Number(state.loadBalancer.request_count || 0);
+  const successful = Number(state.loadBalancer.successful_requests || 0);
+  const failed = Number(state.loadBalancer.failed_requests || 0);
+  const total = successful + failed;
+  const successRate = total > 0 ? Math.round((successful / total) * 100) : 0;
+  lbRequestCountValue.textContent = String(requests);
+  lbSuccessRateValue.textContent = `${successRate}%`;
+  lbFailureCountValue.textContent = String(failed);
+  lbAverageLatencyValue.textContent = `${Number(state.loadBalancer.average_latency_ms || 0)}ms`;
+  lbHealthValue.textContent = `${Number(state.loadBalancer.healthy_backends || 0)} / ${Number(state.loadBalancer.backend_count || 0)}`;
 
   if (document.activeElement !== strategyPicker) {
     strategyPicker.value = state.strategy || 'round_robin';
