@@ -335,6 +335,21 @@ func (r *Registry) ResetHealth(poolID, backendID string, healthy bool) error {
 	})
 }
 
+// BackendHealth reports the observed healthy flag for one backend.
+func (r *Registry) BackendHealth(poolID, backendID string) (bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	pv, ok := r.pools[poolID]
+	if !ok {
+		return false, fmt.Errorf("%w: %s", pool.ErrPoolNotFound, poolID)
+	}
+	v, ok := pv.backends[backendID]
+	if !ok {
+		return false, fmt.Errorf("%w: backend %q in pool %q", pool.ErrBackendNotFound, backendID, poolID)
+	}
+	return v.healthy, nil
+}
+
 func (r *Registry) recordProbe(poolID, backendID string, success bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

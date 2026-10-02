@@ -94,30 +94,30 @@ func (c *Checker) CheckPool(poolID string) error {
 		if backend == nil {
 			continue
 		}
-		if err := c.CheckBackend(backend); err != nil {
+		if err := c.CheckBackend(p.ID, backend); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// CheckBackend probes a single backend and updates the in-memory state.
-func (c *Checker) CheckBackend(backend *pool.Backend) error {
+// CheckBackend probes a single backend and records the outcome in the store.
+// Health state is written only through InMemoryStore.SetBackendHealth so the
+// check loop never mutates Backend pointers shared with readers (race-free).
+func (c *Checker) CheckBackend(poolID string, backend *pool.Backend) error {
 	if backend == nil {
 		return nil
 	}
 
-	url := backend.Address + c.path
-	resp, err := c.client.Get(url)
+	target := backend.Address + c.path
+	resp, err := c.client.Get(target)
 	if err != nil {
-		backend.Healthy = false
-		return err
+		return c.store.SetBackendHealth(poolID, backend.ID, false)
 	}
 	defer resp.Body.Close()
 
 	healthy := resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusBadRequest
-	backend.Healthy = healthy
-	return nil
+	return c.store.SetBackendHealth(poolID, backend.ID, healthy)
 }
 
 func (c *Checker) checkAllPools() {

@@ -39,6 +39,7 @@ func (s *Service) Select(strategy string, p *pool.Pool, policy map[string]Backen
 	if p == nil {
 		return nil, errors.New("pool is required")
 	}
+	p = filteredPool(p, policy)
 	switch strategy {
 	case "", StrategyRoundRobin:
 		return s.roundRobin(p)

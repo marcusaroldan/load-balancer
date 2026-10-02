@@ -2,6 +2,7 @@ package pool
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 )
 
@@ -104,6 +105,32 @@ func (s *InMemoryStore) RemoveBackend(poolID, backendID string) error {
 
 	delete(pool.Backends, backendID)
 	s.pools[poolID] = pool
+	return nil
+}
+
+// SetBackendHealth updates the observed health flag for one backend under the
+// store lock. All health state changes must flow through here so concurrent
+// checkers and readers never mutate shared Backend pointers directly.
+func (s *InMemoryStore) SetBackendHealth(poolID, backendID string, healthy bool) error {
+	if poolID == "" {
+		return ErrPoolRequired
+	}
+	if backendID == "" {
+		return ErrBackendRequired
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	poolObj, exists := s.pools[poolID]
+	if !exists {
+		return fmt.Errorf("%w: %s", ErrPoolNotFound, poolID)
+	}
+	backend, found := poolObj.Backends[backendID]
+	if !found {
+		return fmt.Errorf("%w: backend %q in pool %q", ErrBackendNotFound, backendID, poolID)
+	}
+	backend.Healthy = healthy
 	return nil
 }
 

@@ -19,8 +19,13 @@ const (
 type BackendPolicy struct {
 	Weight            int
 	ActiveConnections int
+	MaxConnections    int // NoConnectionLimit (-1) or 0 means unbounded
 	Strategy          string
 }
+
+// NoConnectionLimit mirrors config.NoConnectionLimit; routing stays free of a
+// config import by layering (registry maps desired state into policies).
+const NoConnectionLimit = -1
 
 // Strategy selects a backend from a pool according to a specific balancing algorithm.
 type Strategy interface {

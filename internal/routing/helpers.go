@@ -15,6 +15,37 @@ var ErrNoHealthyBackends = errors.New("no healthy backends available")
 // registry composes both, they never depend on each other).
 const DefaultBackendWeight = 1
 
+// filteredPool returns a shallow pool copy whose healthy flags also account
+// for connection headroom from policy. Backends at max_connections are marked
+// ineligible for this selection round only; the original pool is untouched.
+func filteredPool(p *pool.Pool, policy map[string]BackendPolicy) *pool.Pool {
+	if len(policy) == 0 {
+		return p
+	}
+	filtered := &pool.Pool{ID: p.ID, Name: p.Name, Metadata: p.Metadata, Backends: make(map[string]*pool.Backend, len(p.Backends))}
+	for id, b := range p.Backends {
+		entry := policy[id]
+		view := *b
+		if !eligible(b, entry.MaxConnections, entry.ActiveConnections) {
+			view.Healthy = false
+		}
+		filtered.Backends[id] = &view
+	}
+	return filtered
+}
+
+// eligible reports whether a backend may receive a new request given its
+// health flag and connection headroom. limitOf supplies current usage.
+func eligible(b *pool.Backend, maxConns, active int) bool {
+	if b == nil || !b.Healthy {
+		return false
+	}
+	if maxConns != NoConnectionLimit && maxConns > 0 && active >= maxConns {
+		return false
+	}
+	return true
+}
+
 // sortedHealthy returns healthy backends in deterministic ID order.
 func sortedHealthy(p *pool.Pool) []*pool.Backend {
 	healthy := make([]*pool.Backend, 0, len(p.Backends))
