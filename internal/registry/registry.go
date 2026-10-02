@@ -38,6 +38,7 @@ type backendView struct {
 	healthy         bool
 	registeredAt    time.Time
 	lastCheck       time.Time
+	trackers        *connTracker
 	consecutiveOK   int
 	consecutiveFail int
 	draining        bool
@@ -87,6 +88,7 @@ type backendKey struct {
 
 type Snapshot struct {
 	pools          map[string]*pool.Pool
+	route          *routing.Service
 	backendConfigs map[backendKey]config.BackendConfig
 	strategies     map[string]string
 	policies       map[string]config.HealthPolicy
@@ -392,6 +394,7 @@ func (r *Registry) Snapshot() *Snapshot {
 	now := r.now()
 	snap := &Snapshot{
 		pools:          make(map[string]*pool.Pool, len(r.pools)),
+		route:          r.route,
 		backendConfigs: make(map[backendKey]config.BackendConfig, len(r.pools)),
 		strategies:     make(map[string]string, len(r.pools)),
 		policies:       make(map[string]config.HealthPolicy, len(r.pools)),

@@ -9,7 +9,9 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -310,8 +312,14 @@ func (c Config) Validate() error {
 		if err := validateAddress(b.Address); err != nil {
 			return fmt.Errorf("%w: backend %q: %v", ErrInvalidAddress, b.ID, err)
 		}
-		if err := validateRange("port", b.Port, MinPort, MaxPort, ErrInvalidPort); err != nil {
-			return fmt.Errorf("%w: backend %q", err, b.ID)
+		hasExplicitPort, err := addressHasPort(b.Address)
+		if err != nil {
+			return fmt.Errorf("%w: backend %q: %v", ErrInvalidAddress, b.ID, err)
+		}
+		if !hasExplicitPort {
+			if err := validateRange("port", b.Port, MinPort, MaxPort, ErrInvalidPort); err != nil {
+				return fmt.Errorf("%w: backend %q", err, b.ID)
+			}
 		}
 		if err := validateRange("weight", b.Weight, MinWeight, MaxWeight, ErrInvalidWeight); err != nil {
 			return fmt.Errorf("%w: backend %q", err, b.ID)
@@ -423,6 +431,19 @@ func validatePath(path string) error {
 		}
 	}
 	return nil
+}
+
+// addressHasPort reports whether the backend address already embeds a port,
+// in which case the separate Port field is not required.
+func addressHasPort(address string) (bool, error) {
+	if !strings.Contains(address, "://") {
+		address = "//" + address
+	}
+	parsed, err := url.Parse(address)
+	if err != nil {
+		return false, err
+	}
+	return parsed.Port() != "", nil
 }
 
 // validateOptionalSeconds accepts unset (0) or a value inside [min,max].

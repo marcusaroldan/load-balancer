@@ -7,13 +7,19 @@ import (
 	"net/url"
 )
 
+// Backend is the legacy static backend descriptor used by cmd/loadbalancer's
+// demo stub. Superseded by registry.BackendRef (PROD-003); removed when the
+// standalone runtime wiring lands in PROD-008.
 type Backend struct {
 	ID      string
 	Address string
 }
 
+// Selector picks a backend from a fixed list. Legacy API; the production path
+// selects through the registry instead.
 type Selector func([]Backend) Backend
 
+// FirstBackend returns the first backend in the list. Legacy demo behavior.
 func FirstBackend(backends []Backend) Backend {
 	if len(backends) == 0 {
 		return Backend{}
@@ -21,7 +27,9 @@ func FirstBackend(backends []Backend) Backend {
 	return backends[0]
 }
 
-func NewHandler(backends []Backend, selector Selector) http.Handler {
+// NewStaticHandler proxies to a fixed backend list using a legacy selector.
+// Renamed from NewHandler to free that name for the runtime-aware Handler.
+func NewStaticHandler(backends []Backend, selector Selector) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		backend := selector(backends)
 

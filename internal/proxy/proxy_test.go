@@ -17,7 +17,7 @@ func TestProxyForwardsRequestToBackend(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	handler := NewHandler([]Backend{
+	handler := NewStaticHandler([]Backend{
 		{ID: "backend-1", Address: backend.URL},
 	}, FirstBackend)
 

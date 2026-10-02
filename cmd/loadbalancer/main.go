@@ -17,7 +17,7 @@ func main() {
 		{ID: "backend-2", Address: "http://127.0.0.1:9002"},
 	}
 
-	handler := proxy.NewHandler(backends, proxy.FirstBackend)
+	handler := proxy.NewStaticHandler(backends, proxy.FirstBackend)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	log.Printf("starting load balancer on %s", addr)
