@@ -1,0 +1,6 @@
+.git
+bin/
+*.md
+planning/
+web/
+.github/
