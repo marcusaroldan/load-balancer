@@ -335,6 +335,65 @@ func (r *Registry) ResetHealth(poolID, backendID string, healthy bool) error {
 	})
 }
 
+// Config returns a deep-enough copy of the current desired-state document so
+// callers (GET /config) can serialize without racing mutations.
+func (r *Registry) Config() config.Config {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := config.Config{Pools: make([]config.PoolConfig, 0, len(r.pools)), Backends: make([]config.BackendConfig, 0)}
+	for _, pv := range r.pools {
+		out.Pools = append(out.Pools, pv.cfg)
+		for _, v := range pv.backends {
+			out.Backends = append(out.Backends, v.cfg)
+		}
+	}
+	return out
+}
+
+// PoolSticky reports sticky-session settings for a pool.
+func (r *Registry) PoolSticky(poolID string) (config.StickyConfig, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	pv, ok := r.pools[poolID]
+	if !ok {
+		return config.StickyConfig{}, false
+	}
+	return pv.cfg.StickySessions, true
+}
+
+// SetPoolSticky updates sticky-session settings; disabling clears the TTL.
+func (r *Registry) SetPoolSticky(poolID string, sticky config.StickyConfig) error {
+	probe := config.Config{Pools: []config.PoolConfig{{ID: poolID, Algorithm: config.StrategyRoundRobin, StickySessions: sticky}}}
+	probe.ApplyDefaults()
+	if err := probe.Validate(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pv, ok := r.pools[poolID]
+	if !ok {
+		return fmt.Errorf("%w: %s", pool.ErrPoolNotFound, poolID)
+	}
+	pv.cfg.StickySessions = sticky
+	r.version++
+	return nil
+}
+
+// DrainStatus reports whether a backend is currently draining.
+func (r *Registry) DrainStatus(poolID, backendID string) (bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	pv, ok := r.pools[poolID]
+	if !ok {
+		return false, fmt.Errorf("%w: %s", pool.ErrPoolNotFound, poolID)
+	}
+	v, ok := pv.backends[backendID]
+	if !ok {
+		return false, fmt.Errorf("%w: backend %q in pool %q", pool.ErrBackendNotFound, backendID, poolID)
+	}
+	return v.draining, nil
+}
+
 // BackendHealth reports the observed healthy flag for one backend.
 func (r *Registry) BackendHealth(poolID, backendID string) (bool, error) {
 	r.mu.RLock()
