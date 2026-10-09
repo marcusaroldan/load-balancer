@@ -4,3 +4,4 @@ bin/
 planning/
 web/
 .github/
+Dockerfile*
