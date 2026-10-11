@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/marcusaroldan/load-balancer/internal/healthprobe"
 	"github.com/marcusaroldan/load-balancer/internal/registry"
 	"github.com/marcusaroldan/load-balancer/internal/runtime"
 )
@@ -21,14 +22,24 @@ import (
 const version = "v0.3.0-dev"
 
 func main() {
-	cfg, showVersion, err := parseFlags(os.Args[1:], os.Stderr)
+	cfg, opts, err := parseFlags(os.Args[1:], os.Stderr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid flags: %v\n", err)
 		os.Exit(2)
 	}
-	if showVersion {
+	if opts.showVersion {
 		fmt.Println("load-balancer", version)
 		return
+	}
+	if opts.healthcheck != "" {
+		// Container HEALTHCHECK helper: the scratch image has no curl,
+		// so the service binary probes its own control plane.
+		if err := healthprobe.Probe(context.Background(), opts.healthcheck); err != nil {
+			log.Printf("UNHEALTHY: %v", err)
+			os.Exit(1)
+		}
+		log.Printf("healthy")
+		os.Exit(0)
 	}
 
 	if err := run(cfg); err != nil {
@@ -62,12 +73,21 @@ func run(cfg runtime.Config) error {
 	return rt.Shutdown(shutdownCtx)
 }
 
-func parseFlags(args []string, errOut io.Writer) (runtime.Config, bool, error) {
+// cliOptions captures the "act-and-exit" flags (version, healthcheck); the
+// rest of the flags configure the long-running service.
+type cliOptions struct {
+	showVersion bool
+	healthcheck string
+}
+
+func parseFlags(args []string, errOut io.Writer) (runtime.Config, cliOptions, error) {
 	fs := flag.NewFlagSet("loadbalancer", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 
 	var cfg runtime.Config
-	showVersion := fs.Bool("version", false, "print version and exit")
+	var opts cliOptions
+	fs.BoolVar(&opts.showVersion, "version", false, "print version and exit")
+	fs.StringVar(&opts.healthcheck, "healthcheck", "", "probe this URL and exit (0 = healthy, 1 = unhealthy) instead of starting; for container HEALTHCHECK")
 	fs.StringVar(&cfg.DataAddr, "data", runtime.DefaultDataAddr, "data-plane listener address (host:port)")
 	fs.StringVar(&cfg.ControlAddr, "control", runtime.DefaultControlAddr, "control-plane listener address (host:port); keep loopback unless an operator network requires more")
 	fs.DurationVar(&cfg.HealthInterval, "health-interval", 0, "health sweep cadence (0 = system default)")
@@ -76,7 +96,7 @@ func parseFlags(args []string, errOut io.Writer) (runtime.Config, bool, error) {
 	fs.BoolVar(&cfg.AllowPublicControl, "expose-control", false, "allow a non-loopback control-plane bind (trusted operator networks only, e.g. a compose bridge; never publish this port to the internet)")
 
 	if err := fs.Parse(args); err != nil {
-		return cfg, false, err
+		return cfg, opts, err
 	}
-	return cfg, *showVersion, nil
+	return cfg, opts, nil
 }

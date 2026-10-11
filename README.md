@@ -49,11 +49,25 @@ separate container.
 
 ## Containers
 
-### Build Image:
-`docker build -t lb:dev .`
+### Build Images:
+```sh
+make docker-lb         # docker build --target loadbalancer -t lbdemo-lb .
+make docker-dashboard  # docker build --target simulator -t lbdemo-dashboard .
+```
 
-### Run Image:
-`docker run -p 9000:8000 lb:dev` (exposes the data plane; control plane stays loopback inside the container)
+### Run the demo project (real LB + dashboard, like the VM):
+```sh
+make compose-up        # dashboard on http://127.0.0.1:8090, LB unpublished
+```
+
+### Run the images standalone:
+```sh
+docker run --rm -p 127.0.0.1:9000:9000 -p 127.0.0.1:8082:8082 lbdemo-lb
+docker run --rm -p 127.0.0.1:8090:8081 lbdemo-dashboard
+```
+The load balancer image defaults to `-data :9000 -control :8082`; the
+control plane is only reachable because you mapped it to loopback yourself
+(never publish :8082 through a tunnel or proxy).
 
 ### Image Size Comparison
 

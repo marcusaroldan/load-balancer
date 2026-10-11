@@ -11,12 +11,15 @@ import (
 )
 
 func TestParseFlagsDefaults(t *testing.T) {
-	cfg, showVersion, err := parseFlags(nil, io.Discard)
+	cfg, opts, err := parseFlags(nil, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if showVersion {
+	if opts.showVersion {
 		t.Fatal("version off by default")
+	}
+	if opts.healthcheck != "" {
+		t.Fatal("healthcheck off by default")
 	}
 	if cfg.DataAddr != runtime.DefaultDataAddr || cfg.ControlAddr != runtime.DefaultControlAddr {
 		t.Fatalf("defaults: %+v", cfg)
@@ -46,9 +49,13 @@ func TestParseFlagsOverrides(t *testing.T) {
 }
 
 func TestParseFlagsVersionAndErrors(t *testing.T) {
-	_, showVersion, err := parseFlags([]string{"-version"}, io.Discard)
-	if err != nil || !showVersion {
-		t.Fatalf("-version: %v %v", showVersion, err)
+	_, opts, err := parseFlags([]string{"-version"}, io.Discard)
+	if err != nil || !opts.showVersion {
+		t.Fatalf("-version: %v %v", opts.showVersion, err)
+	}
+	_, opts, err = parseFlags([]string{"-healthcheck", "http://127.0.0.1:1/healthz"}, io.Discard)
+	if err != nil || opts.healthcheck != "http://127.0.0.1:1/healthz" {
+		t.Fatalf("-healthcheck: %+v %v", opts, err)
 	}
 
 	var errOut bytes.Buffer

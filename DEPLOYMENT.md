@@ -24,6 +24,27 @@ browser -> cloudflare edge -> lb.marcusroldan.dev
         lbdemo private bridge network (never published, never in the tunnel)
 ```
 
+### Placement and first run (A2)
+```sh
+# one-time layout on the VM (convention: /opt/services/<project>/)
+mkdir -p /opt/services/lbdemo
+cd /opt/services/lbdemo
+git clone git@github.com:marcusaroldan/load-balancer.git
+cp load-balancer/deploy/docker-compose.yml .
+
+docker compose up -d --build            # images build from ./load-balancer
+docker compose ps                         # lb + dashboard both "healthy"
+curl -s http://127.0.0.1:8090/healthz    # -> {"status":"ok"}
+open http://127.0.0.1:8090              # scenario UI; add the tunnel ingress row above
+
+# updates: cd load-balancer && git pull && cd .. && docker compose up -d --build
+# logs:   docker compose logs -f lb dashboard
+```
+Container healthchecks exec the service binaries' own `-healthcheck` flag
+(scratch images carry no curl): lb probes its `/healthz` control endpoint,
+the dashboard probes its own. `depends_on: service_healthy` keeps the
+dashboard from pointing at a cold LB.
+
 ### Process wiring (B6: simulator drives the out-of-process LB)
 dashboard container command:
 ```

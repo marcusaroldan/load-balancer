@@ -1,15 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"time"
 
+	"github.com/marcusaroldan/load-balancer/internal/healthprobe"
 	"github.com/marcusaroldan/load-balancer/internal/simulator"
 )
 
@@ -41,7 +44,17 @@ func main() {
 	lbControl := flag.String("lb-control", "", "control-plane URL of an out-of-process load balancer (e.g. http://lb:8082); empty runs the simulator with the in-process harness")
 	lbData := flag.String("lb-data", "", "data-plane URL synthetic traffic is sent to (required with --lb-control)")
 	idleTimeout := flag.Duration("idle-timeout", 0, "scale the demo to zero after this long with no dashboard traffic (0 disables)")
+	healthcheck := flag.String("healthcheck", "", "probe this URL and exit (0 = healthy, 1 = unhealthy) instead of starting; for container HEALTHCHECK")
 	flag.Parse()
+
+	if *healthcheck != "" {
+		if err := healthprobe.Probe(context.Background(), *healthcheck); err != nil {
+			log.Printf("UNHEALTHY: %v", err)
+			os.Exit(1)
+		}
+		log.Printf("healthy")
+		os.Exit(0)
+	}
 
 	binding := simulator.BackendBinding{BindHost: *backendBind, AdvertiseHost: *backendAdvertise}
 	opts := []simulator.HarnessOption{simulator.WithBackendBinding(binding)}
@@ -60,6 +73,11 @@ func main() {
 	defer harness.Stop()
 
 	mux := http.NewServeMux()
+
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
 
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
