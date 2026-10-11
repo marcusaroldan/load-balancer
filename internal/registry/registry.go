@@ -341,10 +341,11 @@ func (r *Registry) Config() config.Config {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := config.Config{Pools: make([]config.PoolConfig, 0, len(r.pools)), Backends: make([]config.BackendConfig, 0)}
-	for _, pv := range r.pools {
+	for _, poolID := range r.sortedPoolIDsLocked() {
+		pv := r.pools[poolID]
 		out.Pools = append(out.Pools, pv.cfg)
-		for _, v := range pv.backends {
-			out.Backends = append(out.Backends, v.cfg)
+		for _, id := range pv.sortedIDs() {
+			out.Backends = append(out.Backends, pv.backends[id].cfg)
 		}
 	}
 	return out
