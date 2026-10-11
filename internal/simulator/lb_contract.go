@@ -2,6 +2,7 @@ package simulator
 
 import (
 	"fmt"
+	"github.com/marcusaroldan/load-balancer/internal/routing"
 	"time"
 )
 
@@ -43,6 +44,13 @@ type LoadBalancerSnapshot struct {
 
 // AdapterFactory creates a concrete LB adapter for the simulator.
 type AdapterFactory func() (LoadBalancerAdapter, error)
+
+// availableStrategies is the single source of truth for the UI's strategy
+// picker; every adapter reports the same list (both real adapters route via
+// the registry, which rejects anything outside this set).
+func availableStrategies() []string {
+	return []string{routing.StrategyRoundRobin, routing.StrategyWeighted, routing.StrategyLeastConnections}
+}
 
 // NewAdapterFactory returns the default adapter factory for the real load balancer.
 func NewAdapterFactory() AdapterFactory {
@@ -126,7 +134,7 @@ func (a *NoopLoadBalancerAdapter) Snapshot() LoadBalancerSnapshot {
 	return LoadBalancerSnapshot{
 		Name:                "not-started",
 		Strategy:            "round_robin",
-		AvailableStrategies: []string{"round_robin", "weighted_round_robin", "least_connections"},
+		AvailableStrategies: availableStrategies(),
 		ObservedAt:          time.Now(),
 	}
 }

@@ -288,3 +288,72 @@ func TestStartupFailures(t *testing.T) {
 		t.Fatalf("same-addr config: want ErrSameAddr, got %v", err)
 	}
 }
+
+func TestControlBindGuard(t *testing.T) {
+	// Empty host (all interfaces) without the explicit opt-in is refused.
+	err := New(Config{DataAddr: "127.0.0.1:0", ControlAddr: ":0"}, registry.New()).Start(context.Background())
+	if err != ErrPublicControlBind {
+		t.Fatalf("wildcard control bind: want ErrPublicControlBind, got %v", err)
+	}
+
+	// Same bind with the operator opt-in starts (and only then).
+	rt := newStarted(t, Config{DataAddr: "127.0.0.1:0", ControlAddr: "127.0.0.1:0", AllowPublicControl: true})
+	if rt.ControlPlaneAddr() == "" {
+		t.Fatal("opt-in start failed")
+	}
+
+	// Loopback binds need no opt-in (covered implicitly by every other test;
+	// asserted again here for the guard's positive case).
+	if err := New(Config{DataAddr: "127.0.0.1:0", ControlAddr: "127.0.0.1:0"}, registry.New()).Start(context.Background()); err != nil {
+		t.Fatalf("loopback control bind should start: %v", err)
+	}
+}
+
+func TestRequestIDEndToEnd(t *testing.T) {
+	echo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Backend-Saw-Request-ID", r.Header.Get("X-Request-ID"))
+	}))
+	defer echo.Close()
+
+	rt := newStarted(t, Config{})
+	control := "http://" + rt.ControlPlaneAddr()
+	data := "http://" + rt.DataPlaneAddr()
+
+	h1, p1 := splitHTTP(echo.URL)
+	requireStatusLocal(t, controlPost(t, control, "/pool", map[string]any{"pool_id": "web"}), http.StatusCreated)
+	requireStatusLocal(t, controlPost(t, control, "/backend", map[string]any{"backend_id": "b1", "pool": "web", "address": h1, "port": p1}), http.StatusCreated)
+
+	// Generated when absent.
+	resp, err := http.Get(data + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	gen := resp.Header.Get("X-Request-ID")
+	if len(gen) != 16 {
+		t.Fatalf("request id not generated: %q", gen)
+	}
+
+	// Client-supplied ids are preserved end to end (upstream sees the same).
+	req, _ := http.NewRequest(http.MethodGet, data+"/", nil)
+	req.Header.Set("X-Request-ID", "trace-me-123")
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	if got := resp2.Header.Get("X-Request-ID"); got != "trace-me-123" {
+		t.Fatalf("client id not echoed: %q", got)
+	}
+	if got := resp2.Header.Get("X-Backend-Saw-Request-ID"); got != "trace-me-123" {
+		t.Fatalf("client id not forwarded upstream: %q", got)
+	}
+}
+
+func requireStatusLocal(t *testing.T, resp *http.Response, want int) {
+	t.Helper()
+	defer resp.Body.Close()
+	if resp.StatusCode != want {
+		t.Fatalf("status %d want %d", resp.StatusCode, want)
+	}
+}

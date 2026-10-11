@@ -35,14 +35,20 @@ const (
 )
 
 const (
-	defaultDrainTimeout    = 10 * time.Second
-	defaultShutdownTimeout = 30 * time.Second
+	defaultDrainTimeout      = 10 * time.Second
+	defaultShutdownTimeout   = 30 * time.Second
+	defaultReadHeaderTimeout = 10 * time.Second
+	defaultIdleTimeout       = 120 * time.Second
 )
 
 var (
 	ErrAlreadyStarted = errors.New("runtime already started")
 	ErrNotStarted     = errors.New("runtime not started")
 	ErrSameAddr       = errors.New("data and control listeners must differ")
+	// ErrPublicControlBind refuses startup when the control plane would
+	// listen beyond loopback without an explicit operator opt-in (PROD-009
+	// security boundary: whoever reaches the control plane owns the LB).
+	ErrPublicControlBind = errors.New("control-plane bind is not loopback; pass -expose-control only when a trusted operator network requires it")
 )
 
 // Config describes process-level wiring; desired traffic state lives in the
@@ -53,6 +59,10 @@ type Config struct {
 	HealthInterval  time.Duration // sweep cadence; 0 selects health.DefaultSweepInterval()
 	DrainTimeout    time.Duration // per-backend drain budget for API deletes
 	ShutdownTimeout time.Duration // max wait for in-flight requests at Shutdown
+	// AllowPublicControl opts out of the loopback-only guard on the
+	// control-plane listener. The compose topology sets it deliberately
+	// (dashboard container must reach lb:8082 on an unpublished network).
+	AllowPublicControl bool
 }
 
 func (c *Config) applyDefaults() {
@@ -116,6 +126,9 @@ func (rt *Runtime) Start(ctx context.Context) error {
 	if rt.cfg.DataAddr == rt.cfg.ControlAddr && !isEphemeral(rt.cfg.DataAddr) {
 		return ErrSameAddr
 	}
+	if !rt.cfg.AllowPublicControl && !isLoopbackBind(rt.cfg.ControlAddr) {
+		return ErrPublicControlBind
+	}
 
 	lnData, err := net.Listen("tcp", rt.cfg.DataAddr)
 	if err != nil {
@@ -142,15 +155,15 @@ func (rt *Runtime) Start(ctx context.Context) error {
 	})
 	rt.healthMgr = health.NewManager(rt.registry, rt.cfg.HealthInterval, nil)
 
-	rt.srvData = &http.Server{Handler: rt.dataHandler, ReadHeaderTimeout: 10 * time.Second}
+	rt.srvData = &http.Server{Handler: withRequestID(rt.dataHandler), ReadHeaderTimeout: defaultReadHeaderTimeout, IdleTimeout: defaultIdleTimeout}
 	rt.srvControl = &http.Server{
-		Handler: controlplane.NewAPIHandler(controlplane.APIDeps{
+		Handler: withRequestID(controlplane.NewAPIHandler(controlplane.APIDeps{
 			Registry:     rt.registry,
 			DataPlane:    rt.dataHandler,
 			DrainTimeout: rt.cfg.DrainTimeout,
 			StartedAt:    time.Now(),
-		}),
-		ReadHeaderTimeout: 10 * time.Second,
+		})),
+		ReadHeaderTimeout: defaultReadHeaderTimeout,
 	}
 
 	rt.started = true
@@ -217,6 +230,20 @@ func (rt *Runtime) defaultPool() string {
 		return pools[0]
 	}
 	return ""
+}
+
+// isLoopbackBind reports whether an address binds only loopback interfaces.
+// Empty host (":8082") means all interfaces and is NOT loopback.
+func isLoopbackBind(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // isEphemeral reports a bind string whose port is 0 (kernel-assigned).

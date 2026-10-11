@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -350,5 +351,111 @@ func TestGeneratedBackendID(t *testing.T) {
 	decode(t, rec, &resp)
 	if resp.BackendID != "web-backend-1" {
 		t.Fatalf("generated id=%q", resp.BackendID)
+	}
+}
+
+func TestMetricsPrometheusNegotiation(t *testing.T) {
+	h, reg := newTestAPI(t, true)
+
+	// Seed a live member, then reserve a connection so the
+	// active-connections gauge has a value.
+	requireStatus(t, doJSON(t, h, http.MethodPost, "/backend", backendBody("b1")), http.StatusCreated)
+	release, err := reg.AcquireConnection("web", "b1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	rec := doJSON(t, h, http.MethodGet, "/metrics", nil) // default JSON
+	requireStatus(t, rec, http.StatusOK)
+	var js map[string]any
+	decode(t, rec, &js)
+	if js["active_connections"] == nil {
+		t.Fatalf("json metrics missing active_connections: %v", js)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Header.Set("Accept", "text/plain; version=0.0.4")
+	rec2 := httptest.NewRecorder()
+	h.ServeHTTP(rec2, req)
+	if ct := rec2.Header().Get("Content-Type"); !strings.Contains(ct, "text/plain") {
+		t.Fatalf("content type: %q", ct)
+	}
+	body := rec2.Body.String()
+	for _, want := range []string{
+		"lb_requests_total", "lb_requests_success_total", "lb_requests_gateway_failures_total",
+		"lb_requests_route_failures_total", "lb_active_connections 1", "lb_backends_healthy",
+		"# TYPE lb_pools gauge",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("prometheus output missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestAuditLogCoversMutationsOnly(t *testing.T) {
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	defer slog.SetDefault(prev)
+
+	h, _ := newTestAPI(t, false)
+	requireStatus(t, doJSON(t, h, http.MethodPost, "/pool", map[string]any{"pool_id": "api"}), http.StatusCreated)
+	doJSON(t, h, http.MethodGet, "/pool", nil)
+
+	lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected exactly one audit line, got %d: %q", len(lines), logs.String())
+	}
+	for _, want := range []string{`"control-plane mutation"`, `"method":"POST"`, `"path":"/pool"`, `"status":201`} {
+		if !strings.Contains(lines[0], want) {
+			t.Fatalf("audit line missing %s: %s", want, lines[0])
+		}
+	}
+}
+
+func TestSetBackendWeightEndpoint(t *testing.T) {
+	h, reg := newTestAPI(t, false)
+	requireStatus(t, doJSON(t, h, http.MethodPost, "/backend", backendBody("b1")), http.StatusCreated)
+
+	rec := doJSON(t, h, http.MethodPut, "/backend/b1/weight", map[string]any{"weight": 5})
+	requireStatus(t, rec, http.StatusOK)
+	cfg := reg.Config()
+	for _, b := range cfg.Backends {
+		if b.ID == "b1" && b.Weight != 5 {
+			t.Fatalf("weight not persisted: %+v", b)
+		}
+	}
+
+	if rec := doJSON(t, h, http.MethodPut, "/backend/b1/weight", map[string]any{"weight": 0}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid weight: %d", rec.Code)
+	}
+	if rec := doJSON(t, h, http.MethodPut, "/backend/ghost/weight", map[string]any{"weight": 2}); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown backend: %d", rec.Code)
+	}
+	// Rejected update must not change state.
+	for _, b := range reg.Config().Backends {
+		if b.ID == "b1" && b.Weight != 5 {
+			t.Fatalf("failed PUT altered weight: %+v", b)
+		}
+	}
+}
+
+func TestSetBackendEnabledEndpoint(t *testing.T) {
+	h, reg := newTestAPI(t, false)
+	requireStatus(t, doJSON(t, h, http.MethodPost, "/backend", backendBody("b1")), http.StatusCreated)
+
+	rec := doJSON(t, h, http.MethodPut, "/backend/b1/enabled", map[string]any{"enabled": false})
+	requireStatus(t, rec, http.StatusOK)
+	for _, b := range reg.Config().Backends {
+		if b.ID == "b1" && b.Enabled {
+			t.Fatal("disable did not persist")
+		}
+	}
+	if rec := doJSON(t, h, http.MethodPut, "/backend/b1/enabled", map[string]any{}); rec.Code != http.StatusOK {
+		t.Fatalf("missing field defaults to false and should succeed: %d", rec.Code)
+	}
+	if rec := doJSON(t, h, http.MethodPut, "/backend/ghost/enabled", map[string]any{"enabled": true}); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown backend: %d", rec.Code)
 	}
 }

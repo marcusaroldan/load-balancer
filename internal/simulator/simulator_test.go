@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"sort"
 	"testing"
@@ -597,5 +599,146 @@ func TestHarnessCanRemoveBackend(t *testing.T) {
 	}
 	if _, err := h.GetBackend("backend-2"); err == nil {
 		t.Fatal("backend-2 still existed after removal")
+	}
+}
+
+func TestManagedBackendBindsFromPolicyNotCaller(t *testing.T) {
+	h, err := NewHarness(PresetScenarioConfigs["stable"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Stop()
+
+	// Default binding: loopback bind + loopback advertise, kernel-assigned port.
+	b, err := h.AddManagedBackend("managed-1", "", 1, 10*time.Millisecond, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(b.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Hostname() != defaultLoopbackAddress {
+		t.Fatalf("advertise host wrong: %q", u.Hostname())
+	}
+	if u.Port() == "" {
+		t.Fatalf("expected concrete bound port in %q", b.URL)
+	}
+	resp, err := http.Get(b.URL + "/health")
+	if err != nil {
+		t.Fatalf("managed backend unreachable at advertised URL: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("health: %d", resp.StatusCode)
+	}
+}
+
+func TestBindingAdvertiseForCrossContainerLB(t *testing.T) {
+	h, err := NewHarness(PresetScenarioConfigs["stable"], WithBackendBinding(BackendBinding{
+		BindHost:      "0.0.0.0",
+		AdvertiseHost: "dashboard",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Stop()
+
+	b, err := h.AddManagedBackend("managed-2", "pool-a", 2, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(b.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Hostname() != "dashboard" {
+		t.Fatalf("advertise must follow operator config for LB registration: %q", b.URL)
+	}
+	// The listener really is on the wildcard bind, so a same-network LB can
+	// reach it; tests dial loopback + the advertised port.
+	resp, err := http.Get("http://" + net.JoinHostPort(defaultLoopbackAddress, u.Port()) + "/health")
+	if err != nil {
+		t.Fatalf("wildcard bind not reachable: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("health: %d", resp.StatusCode)
+	}
+	if got := h.State().Backends; len(got) == 0 {
+		t.Fatal("managed backend missing from state")
+	}
+}
+
+func TestBindingWildcardBindNeverAdvertisedAsDialHost(t *testing.T) {
+	b := BackendBinding{BindHost: "0.0.0.0"}
+	if got := b.advertiseHost(); got != defaultLoopbackAddress {
+		t.Fatalf("wildcard advertise fallback: got %q want loopback", got)
+	}
+	b2 := BackendBinding{}
+	if got := b2.bindHost(); got != defaultLoopbackAddress {
+		t.Fatalf("empty bind fallback: got %q", got)
+	}
+}
+
+func TestLegacyAddBackendAddressIsAdvisoryOnly(t *testing.T) {
+	// Even the trusted-shaped AddBackend cannot steer the bind away from the
+	// harness policy: hostile caller addresses are ignored at newBackend.
+	h, err := NewHarness(PresetScenarioConfigs["stable"], WithBackendBinding(BackendBinding{BindHost: "127.0.0.1"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Stop()
+
+	b, err := h.AddBackend("hostile-1", "0.0.0.0", 0, 1, time.Millisecond, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = h.RemoveBackend("hostile-1") }()
+	u, err := url.Parse(b.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Hostname() != defaultLoopbackAddress {
+		t.Fatalf("caller address leaked into bind/advertise policy: %q", b.URL)
+	}
+}
+
+func TestEnterIdleModeScalesToZero(t *testing.T) {
+	h, err := NewHarness(PresetScenarioConfigs["stable"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Stop()
+
+	if len(h.State().Backends) == 0 {
+		t.Fatal("precondition: stable scenario should have backends")
+	}
+	if err := h.EnterIdleMode(); err != nil {
+		t.Fatal(err)
+	}
+
+	idle := h.State()
+	if idle.Name != "idle" {
+		t.Fatalf("scenario name after idle: %q", idle.Name)
+	}
+	if len(idle.Backends) != 0 {
+		t.Fatalf("backends should be gone: %+v", idle.Backends)
+	}
+	if snap := h.loadBalancer.Snapshot(); snap.BackendCount != 0 {
+		t.Fatalf("load balancer should hold zero backends: %+v", snap)
+	}
+
+	// Idempotent: second call is a no-op success (watchdog may fire again).
+	if err := h.EnterIdleMode(); err != nil {
+		t.Fatalf("second EnterIdleMode: %v", err)
+	}
+
+	// And the demo can come back from idle.
+	if err := h.ResetScenario("stable"); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.State().Backends) == 0 {
+		t.Fatal("stable scenario did not restore backends")
 	}
 }

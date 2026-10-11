@@ -120,6 +120,59 @@ type Harness struct {
 	servers      []*http.Server
 	stop         chan struct{}
 	loadBalancer LoadBalancerAdapter
+	binding      BackendBinding
+	factory      AdapterFactory
+}
+
+// BackendBinding constrains where simulated backends listen and which host
+// they are advertised under. Simulated backends are the simulator's own
+// servers: an operator sets this via process flags once at startup, and the
+// public HTTP API can never steer it (bind-address abuse would let a browser
+// open listeners on arbitrary interfaces of a shared host).
+//
+// BindHost: host listeners bind to (default loopback).
+// AdvertiseHost: host reported in backend URLs; empty falls back to BindHost.
+// Set it to the container's service DNS name when an out-of-process load
+// balancer must reach the simulated backends across the compose network.
+type BackendBinding struct {
+	BindHost      string
+	AdvertiseHost string
+}
+
+// bindHost returns the effective listener host (never empty).
+func (b BackendBinding) bindHost() string {
+	if b.BindHost == "" {
+		return defaultLoopbackAddress
+	}
+	return b.BindHost
+}
+
+// advertiseHost returns the effective URL host. A wildcard bind is never a
+// dialable name, so advertise falls back to loopback in that case.
+func (b BackendBinding) advertiseHost() string {
+	if b.AdvertiseHost != "" {
+		return b.AdvertiseHost
+	}
+	host := b.bindHost()
+	if host == "0.0.0.0" || host == "::" || host == "" || host == "*" {
+		return defaultLoopbackAddress
+	}
+	return host
+}
+
+// HarnessOption customizes harness construction; keeps NewHarness backward
+// compatible for tests and embedded callers.
+type HarnessOption func(*Harness)
+
+// WithAdapterFactory selects a different load-balancer adapter (e.g. the
+// remote out-of-process adapter for the VM topology).
+func WithAdapterFactory(f AdapterFactory) HarnessOption {
+	return func(h *Harness) { h.factory = f }
+}
+
+// WithBackendBinding sets the listener bind/advertise policy.
+func WithBackendBinding(b BackendBinding) HarnessOption {
+	return func(h *Harness) { h.binding = b }
 }
 
 // PresetScenarioConfigs contains ready-made network and balancing conditions.
@@ -172,7 +225,7 @@ var PresetScenarioConfigs = map[string]ScenarioConfig{
 }
 
 // NewHarness creates a simulator harness for a preset scenario.
-func NewHarness(cfg ScenarioConfig) (*Harness, error) {
+func NewHarness(cfg ScenarioConfig, opts ...HarnessOption) (*Harness, error) {
 	if cfg.Name == "" {
 		cfg.Name = defaultCustomScenarioName
 	}
@@ -188,15 +241,19 @@ func NewHarness(cfg ScenarioConfig) (*Harness, error) {
 		pools:       make(map[string]struct{}),
 		backends:    make(map[string]*Backend),
 		stop:        make(chan struct{}),
+		factory:     NewAdapterFactory(),
 	}
-	adapter, err := NewAdapterFactory()()
+	for _, opt := range opts {
+		opt(h)
+	}
+	adapter, err := h.factory()
 	if err != nil {
 		return nil, fmt.Errorf("create load balancer adapter: %w", err)
 	}
 	h.loadBalancer = adapter
 
 	for _, backendCfg := range cfg.Backends {
-		backend, err := newBackend(backendCfg)
+		backend, err := newBackend(backendCfg, h.binding)
 		if err != nil {
 			return nil, err
 		}
@@ -413,12 +470,52 @@ func (h *Harness) AddBackend(id, address string, port int, weight int, latency t
 		Healthy: healthy,
 		Pool:    defaultPoolName,
 	}
-	backend, err := newBackend(backendCfg)
+	backend, err := newBackend(backendCfg, h.binding)
 	if err != nil {
 		return nil, err
 	}
 
 	h.mu.Lock()
+	h.backends[id] = backend
+	h.pools[backend.Pool] = struct{}{}
+	h.servers = append(h.servers, backend.server)
+	h.mu.Unlock()
+	if err := h.configureLoadBalancer(); err != nil {
+		_ = h.RemoveBackend(id)
+		return nil, err
+	}
+	return backend, nil
+}
+
+// AddManagedBackend is the public-API entry point for creating simulated
+// backends. Unlike AddBackend it accepts no address or port at all: the
+// listener binds per the harness policy and the port is kernel-assigned.
+// Browser-supplied bind targets must never reach backend creation (SSRF /
+// bind-abuse boundary, S1).
+func (h *Harness) AddManagedBackend(id, pool string, weight int, latency time.Duration, healthy bool) (*Backend, error) {
+	backendCfg := BackendConfig{
+		ID:      id,
+		Address: h.binding.bindHost(), // advisory only; newBackend binds from policy
+		Port:    0,
+		Weight:  weight,
+		Latency: latency,
+		Healthy: healthy,
+		Pool:    strings.TrimSpace(pool),
+	}
+	if backendCfg.Pool == "" {
+		backendCfg.Pool = defaultPoolName
+	}
+	backend, err := newBackend(backendCfg, h.binding)
+	if err != nil {
+		return nil, err
+	}
+
+	h.mu.Lock()
+	if _, exists := h.backends[id]; exists {
+		h.mu.Unlock()
+		_ = backend.server.Close()
+		return nil, fmt.Errorf("backend %q already exists", id)
+	}
 	h.backends[id] = backend
 	h.pools[backend.Pool] = struct{}{}
 	h.servers = append(h.servers, backend.server)
@@ -541,7 +638,27 @@ func (h *Harness) ResetScenario(name string) error {
 	if !ok {
 		return fmt.Errorf("unknown scenario %q", name)
 	}
+	return h.applyScenario(cfg)
+}
 
+// EnterIdleMode scales the whole demo to zero (S2): simulated listeners
+// close, synthetic traffic stops, and every backend is deregistered from the
+// load balancer (an empty scenario reconciles to no members). It is the
+// watchdog's teardown path and is safe to call repeatedly.
+func (h *Harness) EnterIdleMode() error {
+	h.mu.RLock()
+	strategy, alreadyIdle := h.strategy, len(h.backends) == 0 && h.name == idleScenarioName
+	h.mu.RUnlock()
+	if alreadyIdle {
+		return nil
+	}
+	return h.applyScenario(ScenarioConfig{Name: idleScenarioName, Strategy: strategy})
+}
+
+// applyScenario rebuilds the environment from cfg in one shot: close all
+// listeners, stop traffic, install the new backends, reconfigure the load
+// balancer, restart the loop.
+func (h *Harness) applyScenario(cfg ScenarioConfig) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -567,7 +684,7 @@ func (h *Harness) ResetScenario(name string) error {
 	h.stop = make(chan struct{})
 
 	for _, backendCfg := range cfg.Backends {
-		backend, err := newBackend(backendCfg)
+		backend, err := newBackend(backendCfg, h.binding)
 		if err != nil {
 			return err
 		}
@@ -683,13 +800,16 @@ func randomProcessingDelay() time.Duration {
 	}
 }
 
-func newBackend(cfg BackendConfig) (*Backend, error) {
+// newBackend starts one simulated backend. The listener host ALWAYS comes
+// from the harness binding policy (never from per-backend config, so even a
+// misused API layer cannot steer bind addresses); cfg.Address remains only
+// as descriptive input. The advertised URL host comes from the policy too,
+// which is how an out-of-process load balancer reaches the listeners.
+func newBackend(cfg BackendConfig, binding BackendBinding) (*Backend, error) {
 	if cfg.ID == "" {
 		return nil, fmt.Errorf("backend id is required")
 	}
-	if cfg.Address == "" {
-		cfg.Address = defaultLoopbackAddress
-	}
+	listenHost := binding.bindHost()
 	if cfg.Port == 0 {
 		cfg.Port = 0
 	}
@@ -703,10 +823,11 @@ func newBackend(cfg BackendConfig) (*Backend, error) {
 		cfg.Failing = true
 	}
 
-	listener, err := listenForBackend(cfg.Address, cfg.Port)
+	listener, err := listenForBackend(listenHost, cfg.Port)
 	if err != nil {
-		return nil, fmt.Errorf("listen on %s:%d for backend %s: %w", cfg.Address, cfg.Port, cfg.ID, err)
+		return nil, fmt.Errorf("listen on %s:%d for backend %s: %w", listenHost, cfg.Port, cfg.ID, err)
 	}
+	advertisePort := listenerPortOf(listener)
 
 	backend := &Backend{
 		ID:          cfg.ID,
@@ -718,7 +839,7 @@ func newBackend(cfg BackendConfig) (*Backend, error) {
 		FailureRate: cfg.FailureRate,
 		Pool:        cfg.Pool,
 		listener:    listener,
-		URL:         "http://" + listener.Addr().String(),
+		URL:         "http://" + net.JoinHostPort(binding.advertiseHost(), strconv.Itoa(advertisePort)),
 	}
 	backend.server = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		backend.mu.Lock()
@@ -777,6 +898,24 @@ func newBackend(cfg BackendConfig) (*Backend, error) {
 	}()
 
 	return backend, nil
+}
+
+// listenerPortOf extracts the concrete port a listener bound to (needed for
+// advertise URLs because kernel-assigned ports are not known until bind).
+func listenerPortOf(l net.Listener) int {
+	if tcpAddr, ok := l.Addr().(*net.TCPAddr); ok {
+		return tcpAddr.Port
+	}
+	host, port, err := net.SplitHostPort(l.Addr().String())
+	if err != nil {
+		return 0
+	}
+	_ = host
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 func listenForBackend(address string, port int) (net.Listener, error) {

@@ -73,6 +73,7 @@ func parseFlags(args []string, errOut io.Writer) (runtime.Config, bool, error) {
 	fs.DurationVar(&cfg.HealthInterval, "health-interval", 0, "health sweep cadence (0 = system default)")
 	fs.DurationVar(&cfg.DrainTimeout, "drain-timeout", 0, "per-backend drain budget for control-plane deletes (0 = system default)")
 	fs.DurationVar(&cfg.ShutdownTimeout, "shutdown-deadline", 0, "max wait for in-flight requests at shutdown (0 = system default)")
+	fs.BoolVar(&cfg.AllowPublicControl, "expose-control", false, "allow a non-loopback control-plane bind (trusted operator networks only, e.g. a compose bridge; never publish this port to the internet)")
 
 	if err := fs.Parse(args); err != nil {
 		return cfg, false, err

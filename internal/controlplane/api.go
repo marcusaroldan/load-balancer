@@ -7,6 +7,8 @@
 //	GET    /backend/{backend_id}     desired + observed state
 //	DELETE /backend/{backend_id}     disable, drain, remove; reports drained connections
 //	GET    /backend/{backend_id}/health  health status and probe counters
+//	PUT    /backend/{backend_id}/weight  desired weight update (validated)
+//	PUT    /backend/{backend_id}/enabled routing eligibility toggle
 //	POST   /pool                     create pool {pool_id, name?, algorithm?, health_policy?, sticky?}
 //	GET    /pool                     list pools
 //	GET    /pool/{pool_id}           pool config and members
@@ -86,6 +88,8 @@ func NewAPIHandler(deps APIDeps) *APIHandler {
 	mux.HandleFunc("GET /pool/{pool_id}", h.handleGetPool)
 	mux.HandleFunc("DELETE /pool/{pool_id}", h.handleDeletePool)
 	mux.HandleFunc("PUT /config/algorithm", h.handleSetAlgorithm)
+	mux.HandleFunc("PUT /backend/{backend_id}/weight", h.handleSetBackendWeight)
+	mux.HandleFunc("PUT /backend/{backend_id}/enabled", h.handleSetBackendEnabled)
 	mux.HandleFunc("GET /config", h.handleGetConfig)
 	mux.HandleFunc("GET /healthz", h.handleHealthz)
 	mux.HandleFunc("GET /readyz", h.handleReadyz)
@@ -94,9 +98,8 @@ func NewAPIHandler(deps APIDeps) *APIHandler {
 	return h
 }
 
-func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.mux.ServeHTTP(w, r)
-}
+// ServeHTTP lives in audit.go (mutations are audited there; reads pass
+// straight to the mux).
 
 // ---- request DTOs -------------------------------------------------------
 
@@ -197,11 +200,12 @@ type configResponse struct {
 }
 
 type metricsResponse struct {
-	APIVersion     string          `json:"api_version"`
-	Requests       requestCounters `json:"requests"`
-	ActiveBackends int             `json:"healthy_backends"`
-	TotalBackends  int             `json:"total_backends"`
-	PoolCount      int             `json:"pool_count"`
+	APIVersion        string          `json:"api_version"`
+	Requests          requestCounters `json:"requests"`
+	ActiveBackends    int             `json:"healthy_backends"`
+	TotalBackends     int             `json:"total_backends"`
+	ActiveConnections int             `json:"active_connections"`
+	PoolCount         int             `json:"pool_count"`
 }
 
 type requestCounters struct {
@@ -299,6 +303,59 @@ func (h *APIHandler) handleBackendHealth(w http.ResponseWriter, r *http.Request)
 		resp.LastCheck = st.LastCheck.UTC().Format(time.RFC3339Nano)
 	}
 	h.writeJSON(w, http.StatusOK, resp)
+}
+
+// handleSetBackendWeight updates desired weight without a delete/recreate,
+// so in-flight connections keep draining correctly (registry.SetWeight is
+// the single atomic mutation; validation mirrors admission rules).
+func (h *APIHandler) handleSetBackendWeight(w http.ResponseWriter, r *http.Request) {
+	backendID := r.PathValue("backend_id")
+	var body struct {
+		Weight int `json:"weight"`
+	}
+	if err := decodeBody(w, r, &body); err != nil {
+		h.writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	poolID, _, _, err := h.deps.Registry.FindBackend(backendID)
+	if err != nil {
+		h.writeError(w, statusFor(err), err)
+		return
+	}
+	if err := h.deps.Registry.SetWeight(poolID, backendID, body.Weight); err != nil {
+		h.writeError(w, statusFor(err), err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, map[string]any{
+		"api_version": APIVersion, "backend_id": backendID, "pool_id": poolID,
+		"weight": body.Weight,
+	})
+}
+
+// handleSetBackendEnabled toggles routing eligibility immediately (a flag
+// change, not a lifecycle event; draining/removal stay on DELETE).
+func (h *APIHandler) handleSetBackendEnabled(w http.ResponseWriter, r *http.Request) {
+	backendID := r.PathValue("backend_id")
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := decodeBody(w, r, &body); err != nil {
+		h.writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	poolID, _, _, err := h.deps.Registry.FindBackend(backendID)
+	if err != nil {
+		h.writeError(w, statusFor(err), err)
+		return
+	}
+	if err := h.deps.Registry.SetEnabled(poolID, backendID, body.Enabled); err != nil {
+		h.writeError(w, statusFor(err), err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, map[string]any{
+		"api_version": APIVersion, "backend_id": backendID, "pool_id": poolID,
+		"enabled": body.Enabled,
+	})
 }
 
 func (h *APIHandler) handleCreatePool(w http.ResponseWriter, r *http.Request) {
@@ -446,10 +503,13 @@ func (h *APIHandler) handleReadyz(w http.ResponseWriter, r *http.Request) {
 
 func (h *APIHandler) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	cfg := h.deps.Registry.Config()
-	healthy, total := 0, len(cfg.Backends)
+	healthy, total, connections := 0, len(cfg.Backends), 0
 	for _, b := range cfg.Backends {
-		if st, err := h.deps.Registry.Status(b.PoolID, b.ID); err == nil && st.Healthy && !st.Draining {
-			healthy++
+		if st, err := h.deps.Registry.Status(b.PoolID, b.ID); err == nil {
+			if st.Healthy && !st.Draining {
+				healthy++
+			}
+			connections += st.ActiveConnections
 		}
 	}
 	req := requestCounters{}
@@ -461,10 +521,15 @@ func (h *APIHandler) handleMetrics(w http.ResponseWriter, r *http.Request) {
 			AverageLatencyMS: float64(m.AverageLatency()) / float64(time.Millisecond),
 		}
 	}
+	if wantsPrometheus(r) {
+		h.writePrometheus(w, req, healthy, total, connections, len(cfg.Pools))
+		return
+	}
 	h.writeJSON(w, http.StatusOK, metricsResponse{
 		APIVersion: APIVersion, Requests: req,
 		ActiveBackends: healthy, TotalBackends: total,
-		PoolCount: len(cfg.Pools),
+		ActiveConnections: connections,
+		PoolCount:         len(cfg.Pools),
 	})
 }
 

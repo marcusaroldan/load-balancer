@@ -257,7 +257,7 @@ func (a *RealLoadBalancerAdapter) Snapshot() LoadBalancerSnapshot {
 		FailedRequests:      a.failedRequests.Load(),
 		AverageLatencyMS:    averageLatency,
 		ObservedAt:          time.Now(),
-		AvailableStrategies: []string{routing.StrategyRoundRobin, routing.StrategyWeighted, routing.StrategyLeastConnections},
+		AvailableStrategies: availableStrategies(),
 	}
 }
 

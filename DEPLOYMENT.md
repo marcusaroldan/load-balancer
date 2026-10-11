@@ -1,4 +1,103 @@
-# Load Balancer Simulator Deployment Guide (Option A)
+# Deployment Guide
+
+## 0. Current canonical topology: VM + Cloudflared subdomain
+
+This section supersedes the Option A/B framing of sections 1-16 below, which
+are kept as historical planning context. The service now runs as two
+containers on the VM, joined by a private compose network; the Cloudflared
+tunnel (deployed with the hermes/code-server stack, `network_mode: host`)
+publishes exactly one URL:
+
+```
+browser -> cloudflare edge -> lb.marcusroldan.dev
+            |
+            v (tunnel ingress: http://127.0.0.1:8090)
++---------------------------+      +---------------------------+
+| dashboard container       |      | lb container              |
+| cmd/simulator             |----->| cmd/loadbalancer          |
+| - web UI (same origin)    | HTTP |  control :8082 (net-only) |
+| - simulated backends      |      |  data    :9000 (net-only) |
+|   bind 0.0.0.0, advertise |      |                           |
+|   "dashboard"             |<-----| health probes + proxy to  |
+| publishes 127.0.0.1:8090  |      | http://dashboard:91xx     |
++---------------------------+      +---------------------------+
+        lbdemo private bridge network (never published, never in the tunnel)
+```
+
+### Process wiring (B6: simulator drives the out-of-process LB)
+dashboard container command:
+```
+simulator --port 8081 --idle-timeout 10m \
+  --lb-control http://lb:8082 --lb-data http://lb:9000 \
+  --backend-bind 0.0.0.0 --backend-advertise dashboard
+```
+lb container command:
+```
+loadbalancer -data :9000 -control :8082 -expose-control \
+  -health-interval 2s
+```
+Scale-to-zero (S2): the dashboard watchdog enters the idle scenario after
+`--idle-timeout` without any dashboard/API traffic -- an open browser tab
+counts as traffic (it polls /api/state). Idle means: simulated listeners
+closed, synthetic traffic stopped, and every backend deregistered from the
+live LB (data plane then answers 503 with nothing to route). Starting any
+scenario from the UI re-registers and resumes. `--idle-timeout 0` disables
+the watchdog (local dev default).
+
+### Ports
+| Port | Where | Exposed to |
+|---|---|---|
+| 8090 -> container 8081 | dashboard/API | Cloudflared only (loopback publish) |
+| lb data plane 9000 | compose network | visitors' simulated traffic (via dashboard), not published |
+| lb control 8082 | compose network | dashboard container; `-expose-control` required to bind non-loopback |
+
+### Configuration and persistence
+- Desired state enters only through the control-plane API (validated, atomic,
+  live). Flags/env configure the process: `-data`, `-control`,
+  `-expose-control`, `-health-interval`, `-drain-timeout`,
+  `-shutdown-deadline`.
+- The demo runs EPHEMERAL (no config file): every lb restart begins with an
+  empty registry, which is also the scale-to-zero guarantee; the dashboard
+  re-registers backends when a scenario starts. File-backed config arrives
+  with PROD-006; until then there is nothing to back up.
+
+### Health behavior
+- Per-pool HTTP probes (path, interval, timeout, thresholds, startup grace)
+  from the canonical config; flapping uses consecutive-success/failure
+  hysteresis; unhealthy and draining backends leave rotation immediately.
+
+### Shutdown
+- SIGTERM/SIGINT: health sweeps stop, the control plane stops accepting,
+  then the data plane drains in-flight proxied requests up to
+  `-shutdown-deadline` (default 30s). `docker stop` sends SIGTERM, so compose
+  gets the same behavior; keep `stop_grace_period` >= the deadline.
+
+### Security boundary (PROD-009)
+- Control plane defaults to loopback and refuses non-loopback binds without
+  `-expose-control`; the lb port is never published to the host and the
+  Cloudflared ingress list contains only the dashboard.
+- Simulated backends bind per operator flags; the browser can never steer a
+  bind address or port (S1).
+- No CORS headers are emitted by the load balancer planes; the dashboard UI
+  is same-origin with its API through the subdomain.
+- `/metrics` (JSON or Prometheus via `Accept: text/plain`) exposes aggregates
+  only - no backend identities, routes, or session maps.
+- Every control-plane mutation is audit-logged (method, path, status,
+  request id, source, duration); `X-Request-ID` is generated or preserved
+  per request and forwarded to backends for correlation.
+
+### Tunnel ingress (cloudflared config, VM)
+```yaml
+ingress:
+  - hostname: lb.marcusroldan.dev
+    service: http://127.0.0.1:8090
+  # existing hermes / code-server routes unchanged
+  - service: http://127.0.0.1:8080
+```
+
+---
+
+# Historical: Load Balancer Simulator Deployment Guide (Option A)
 
 This document is the single source of truth for deploying the simulator backend and related infrastructure for the static GitHub Pages frontend. It is written to be consumed by an implementation agent in a separate portfolio repository that does not have access to this project directory.
 
