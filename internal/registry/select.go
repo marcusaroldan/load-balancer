@@ -3,6 +3,7 @@ package registry
 import (
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/marcusaroldan/load-balancer/internal/pool"
 	"github.com/marcusaroldan/load-balancer/internal/routing"
@@ -46,20 +47,28 @@ func (s *Snapshot) Select(poolID string) (*BackendRef, error) {
 	return &BackendRef{Backend: backend}, nil
 }
 
-// BackendURL is the exported helper used by the proxy layer: normalizes a
-// backend address into a parseable URL, adding a scheme when absent and
-// folding in the port when the address omits it.
+// BackendURL is the exported helper used by the proxy and health layers:
+// normalizes a backend address into a parseable URL, adding the default
+// scheme when absent and folding in the port when the address omits it.
+// Schemeless host[:port] forms (the common shape for the control-plane
+// address+port fields) are ambiguous to url.Parse — "127.0.0.1:9102"
+// fails with "first path segment cannot contain colon" — so the scheme is
+// prepended before parsing instead of repairing the parse afterwards.
 func BackendURL(b *pool.Backend) (*url.URL, error) {
 	address := b.Address
 	if address == "" {
 		return nil, fmt.Errorf("backend %q has empty address", b.ID)
 	}
-	parsed, err := url.Parse(address)
+	parseTarget := address
+	if !strings.Contains(parseTarget, "://") {
+		parseTarget = "http://" + parseTarget
+	}
+	parsed, err := url.Parse(parseTarget)
 	if err != nil {
 		return nil, fmt.Errorf("backend %q address %q: %w", b.ID, address, err)
 	}
-	if parsed.Scheme == "" {
-		parsed.Scheme = "http"
+	if parsed.Host == "" {
+		return nil, fmt.Errorf("backend %q address %q: no host", b.ID, address)
 	}
 	if parsed.Port() == "" && b.Port > 0 {
 		parsed.Host = fmt.Sprintf("%s:%d", parsed.Host, b.Port)

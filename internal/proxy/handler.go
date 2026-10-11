@@ -40,7 +40,11 @@ func (m RequestMetrics) AverageLatency() time.Duration {
 // HandlerConfig wires the runtime-aware data plane to its collaborators.
 type HandlerConfig struct {
 	Registry *registry.Registry
-	PoolID   string
+	// PoolID selects the served pool statically (tests, single-purpose hosts).
+	PoolID string
+	// DefaultPool resolves the served pool per request when PoolID is empty.
+	// An empty resolution means "no pool configured" -> 503 (scale-to-zero).
+	DefaultPool func() string
 }
 
 // Handler is the PROD-003 data-plane http.Handler serving one pool through the
@@ -97,13 +101,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // acquireBackend retries selection when a chosen backend is at its connection
 // limit, so capacity pressure redistributes instead of rejecting outright.
 func (h *Handler) acquireBackend() (*registry.BackendRef, func(), error) {
+	poolID := h.resolvePoolID()
 	for attempt := 0; attempt < maxSelectionAttempts; attempt++ {
 		snap := h.cfg.Registry.Snapshot()
-		ref, err := snap.Select(h.cfg.PoolID)
+		ref, err := snap.Select(poolID)
 		if err != nil {
 			return nil, nil, err
 		}
-		release, err := h.cfg.Registry.AcquireConnection(h.cfg.PoolID, ref.ID())
+		release, err := h.cfg.Registry.AcquireConnection(poolID, ref.ID())
 		if err == nil {
 			return ref, release, nil
 		}
@@ -112,6 +117,18 @@ func (h *Handler) acquireBackend() (*registry.BackendRef, func(), error) {
 		}
 	}
 	return nil, nil, registry.ErrConnectionLimitReached
+}
+
+// resolvePoolID prefers the static PoolID, else asks the resolver (per
+// request, so control-plane pool changes apply without rebuilding handlers).
+func (h *Handler) resolvePoolID() string {
+	if h.cfg.PoolID != "" {
+		return h.cfg.PoolID
+	}
+	if h.cfg.DefaultPool != nil {
+		return h.cfg.DefaultPool()
+	}
+	return ""
 }
 
 const maxSelectionAttempts = 3

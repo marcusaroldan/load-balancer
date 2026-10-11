@@ -16,6 +16,10 @@ const (
 	defaultHTTPTimeout         = 2 * time.Second
 )
 
+// DefaultSweepInterval reports the documented default probe cadence, so the
+// runtime flag default and the manager fallback share one value.
+func DefaultSweepInterval() time.Duration { return defaultHealthCheckInterval }
+
 // Checker periodically probes backend health and updates the in-memory state.
 type Checker struct {
 	store    *pool.InMemoryStore

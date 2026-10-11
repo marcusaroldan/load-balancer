@@ -418,3 +418,39 @@ func TestSnapshotPoolLookup(t *testing.T) {
 	}
 	_ = pool.ErrPoolNotFound
 }
+
+func TestBackendURLAddressForms(t *testing.T) {
+	cases := []struct {
+		name    string
+		address string
+		port    int
+		want    string
+		wantErr bool
+	}{
+		{name: "host plus explicit port", address: "127.0.0.1", port: 9101, want: "http://127.0.0.1:9101"},
+		{name: "host colon port in address", address: "127.0.0.1:9102", want: "http://127.0.0.1:9102"},
+		{name: "explicit port wins when address has none", address: "http://backend.example", port: 8080, want: "http://backend.example:8080"},
+		{name: "scheme and port embedded", address: "https://secure.example:8443", want: "https://secure.example:8443"},
+		{name: "hostname with dot", address: "dashboard", port: 9100, want: "http://dashboard:9100"},
+		{name: "empty address rejected", address: "", wantErr: true},
+		{name: "scheme only rejected", address: "http://", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			u, err := BackendURL(&pool.Backend{ID: "b", Address: tc.address, Port: tc.port})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got %v", u)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got := u.String()
+			if got != tc.want && !(tc.want == "http://backend.example:8080" && got == "http://backend.example:8080/") {
+				t.Fatalf("want %q got %q", tc.want, got)
+			}
+		})
+	}
+}

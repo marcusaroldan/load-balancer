@@ -145,7 +145,13 @@ func (m *Manager) SweepOnce(ctx context.Context) {
 		}
 		for _, id := range sortedIDs(p) {
 			b := p.Backends[id]
-			result := m.Probe(ctx, b.Address, policy)
+			target, terr := registry.BackendURL(b)
+			if terr != nil {
+				// Malformed desired state can never be probed healthy.
+				m.applyResult(poolID, b.ID, ProbeResult{Healthy: false})
+				continue
+			}
+			result := m.Probe(ctx, target.String(), policy)
 			m.applyResult(poolID, id, result)
 		}
 	}
