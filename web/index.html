@@ -59,7 +59,15 @@
                 </details>
                 <details>
                   <summary>Technical details:</summary>
-                  <p>The load balancer itself is a real HTTP routing component that receives client requests, evaluates the active backend pool, and applies a selection strategy such as round robin, weighted round robin, or least connections. It tracks backend health, active connections, request rate, and observed latency so it can adapt traffic distribution during failures or degraded conditions.</p>
+                  <p>The load balancer itself is a real HTTP routing component that receives client requests, evaluates the active backend pool, and applies a selection strategy such as round robin, weighted round robin, or least connections. It tracks backend health, active connections, request rate, and observed latency so it can adapt traffic distribution during failures or degraded conditions. The core load balancer also supports multi-pool host routing (each pool can claim a public hostname and the data plane selects the pool by request Host header), though this demo drives a single pool to keep the environment model simple.</p>
+                </details>
+                <details>
+                  <summary>Future extensions (not implemented yet):</summary>
+                  <ul>
+                    <li><em>- Prometheus metrics + Grafana dashboard:</em> the control plane already serves Prometheus-format metrics at <code>/metrics</code>; a scrape config and importable dashboard are planned so operators get time-series history, not just current aggregates.</li>
+                    <li><em>- Sticky sessions:</em> cookie-based session affinity is designed (per-pool enable + TTL in the config model) but not wired into routing yet.</li>
+                    <li><em>- Persistent configuration:</em> saving and reloading the pool/backend desired state across restarts is planned; the runtime currently starts empty (scale-to-zero) and is configured live through the control plane.</li>
+                  </ul>
                 </details>
               </div>
             </div>
