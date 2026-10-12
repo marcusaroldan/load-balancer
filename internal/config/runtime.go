@@ -78,6 +78,8 @@ var (
 	ErrInvalidID         = errors.New("invalid id")
 	ErrInvalidName       = errors.New("invalid name")
 	ErrInvalidPath       = errors.New("invalid health check path")
+	ErrInvalidHost       = errors.New("invalid pool host")
+	ErrDuplicateHost     = errors.New("duplicate pool host")
 	ErrStickyTTLRequired = errors.New("sticky session ttl required when sticky sessions enabled")
 )
 
@@ -140,8 +142,13 @@ func (s StickyConfig) TTL() time.Duration { return time.Duration(s.TTLSeconds) *
 
 // PoolConfig is the desired state of one backend pool.
 type PoolConfig struct {
-	ID             string       `json:"id"`
-	Name           string       `json:"name,omitempty"`
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+	// Host is the public hostname this pool serves (multi-pool host
+	// routing). Empty means the pool is only reachable through the
+	// default-pool rule (single configured pool). Hostnames are matched
+	// case-insensitively against the request Host header, port stripped.
+	Host           string       `json:"host,omitempty"`
 	Algorithm      string       `json:"algorithm"`
 	HealthPolicy   HealthPolicy `json:"health_policy,omitempty"`
 	StickySessions StickyConfig `json:"sticky_sessions,omitempty"`
@@ -212,6 +219,7 @@ func (c *Config) ApplyDefaults() {
 		if pool.Name == "" {
 			pool.Name = pool.ID
 		}
+		pool.Host = NormalizeHost(pool.Host)
 		pool.HealthPolicy = mergeHealthPolicy(poolDefaults, pool.HealthPolicy)
 	}
 	for i := range c.Backends {
@@ -275,6 +283,7 @@ func (c Config) Validate() error {
 	}
 
 	seenPools := make(map[string]struct{}, len(c.Pools))
+	seenHosts := make(map[string]string, len(c.Pools))
 	for _, pool := range c.Pools {
 		if err := validateID("pool", pool.ID); err != nil {
 			return err
@@ -285,6 +294,15 @@ func (c Config) Validate() error {
 		seenPools[pool.ID] = struct{}{}
 		if err := validateName("pool", pool.ID, pool.Name); err != nil {
 			return err
+		}
+		if pool.Host != "" {
+			if err := validatePoolHost(pool.Host); err != nil {
+				return fmt.Errorf("%w: pool %q: %v", ErrInvalidHost, pool.ID, err)
+			}
+			if other, dup := seenHosts[pool.Host]; dup {
+				return fmt.Errorf("%w: pools %q and %q both claim host %q", ErrDuplicateHost, other, pool.ID, pool.Host)
+			}
+			seenHosts[pool.Host] = pool.ID
 		}
 		if !isSupportedStrategy(pool.Algorithm) {
 			return fmt.Errorf("%w: pool %q algorithm %q", ErrUnknownStrategy, pool.ID, pool.Algorithm)
@@ -341,6 +359,36 @@ func validateListener(name string, l ListenerConfig) error {
 		return fmt.Errorf("%s host is required", name)
 	}
 	return validateRange(name+" port", l.Port, MinPort, MaxPort, ErrInvalidPort)
+}
+
+// hostPattern accepts a plain hostname (letters, digits, hyphens, dots) with
+// no scheme, port, path, or wildcard. IPv6 literals with colons are excluded
+// (the Host header would carry a port anyway); IPv4 dotted quads are fine.
+var hostPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$|^[0-9.]+$`)
+
+// NormalizeHost lowercases and trims a pool host so routing comparisons are
+// stable regardless of how the value arrived (API payload, config file, flags).
+func NormalizeHost(host string) string {
+	return strings.ToLower(strings.TrimSpace(host))
+}
+
+// validatePoolHost checks a normalized pool host: a plain hostname without
+// scheme, port, path, or wildcards. Request Host values are stripped to
+// hostname form before matching, so a port here could never match anyway.
+func validatePoolHost(host string) error {
+	if host == "" {
+		return errors.New("host is empty")
+	}
+	if len(host) > 253 {
+		return errors.New("host exceeds 253 characters")
+	}
+	if strings.ContainsAny(host, ":/ 	") {
+		return errors.New("host must be a bare hostname (no scheme, port, or path)")
+	}
+	if !hostPattern.MatchString(host) {
+		return errors.New(`host must match a plain hostname like "api.example.com"`)
+	}
+	return nil
 }
 
 func validateID(kind, id string) error {

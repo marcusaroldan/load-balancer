@@ -232,6 +232,45 @@ func TestPoolCRUD(t *testing.T) {
 	requireStatus(t, doJSON(t, h, http.MethodGet, "/pool/ghost", nil), http.StatusNotFound)
 }
 
+func TestPoolHostField(t *testing.T) {
+	h, _ := newTestAPI(t, false)
+
+	// Host accepted and normalized into the pool document.
+	rec := doJSON(t, h, http.MethodPost, "/pool", map[string]any{
+		"pool_id": "api",
+		"host":    " API.Example.COM ",
+	})
+	requireStatus(t, rec, http.StatusCreated)
+	var detail poolResponse
+	decode(t, doJSON(t, h, http.MethodGet, "/pool/api", nil), &detail)
+	if detail.Pool.Host != "api.example.com" {
+		t.Fatalf("created pool host=%q", detail.Pool.Host)
+	}
+
+	// Duplicate claim -> 409 (conflict), matching duplicate-id semantics.
+	requireStatus(t, doJSON(t, h, http.MethodPost, "/pool",
+		map[string]any{"pool_id": "dup", "host": "api.example.com"}), http.StatusConflict)
+
+	// Invalid host -> 400.
+	requireStatus(t, doJSON(t, h, http.MethodPost, "/pool",
+		map[string]any{"pool_id": "bad", "host": "http://x.com"}), http.StatusBadRequest)
+
+	// GET /config round-trips the host claim.
+	rec = doJSON(t, h, http.MethodGet, "/config", nil)
+	requireStatus(t, rec, http.StatusOK)
+	var cfg configResponse
+	decode(t, rec, &cfg)
+	found := false
+	for _, pc := range cfg.Config.Pools {
+		if pc.ID == "api" && pc.Host == "api.example.com" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("config pools missing host claim: %+v", cfg.Config.Pools)
+	}
+}
+
 func TestDeletePoolDrainsMembers(t *testing.T) {
 	h, reg := newTestAPI(t, false)
 	requireStatus(t, doJSON(t, h, http.MethodPost, "/backend", backendBody("b1")), http.StatusCreated)

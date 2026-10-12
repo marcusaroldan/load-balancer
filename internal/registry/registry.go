@@ -197,6 +197,7 @@ func (r *Registry) CreatePool(pc config.PoolConfig) error {
 	if pcCopy.Name == "" {
 		pcCopy.Name = pcCopy.ID
 	}
+	pcCopy.Host = config.NormalizeHost(pcCopy.Host)
 	pcCopy.HealthPolicy = overlayPolicy(defaults, pcCopy.HealthPolicy)
 
 	if err := validatePoolAdmission(pcCopy); err != nil {
@@ -207,6 +208,13 @@ func (r *Registry) CreatePool(pc config.PoolConfig) error {
 	defer r.mu.Unlock()
 	if _, exists := r.pools[pcCopy.ID]; exists {
 		return fmt.Errorf("%w: pool %q already exists", config.ErrDuplicateID, pcCopy.ID)
+	}
+	if pcCopy.Host != "" {
+		for id, pv := range r.pools {
+			if pv.cfg.Host == pcCopy.Host {
+				return fmt.Errorf("%w: pools %q and %q both claim host %q", config.ErrDuplicateHost, id, pcCopy.ID, pcCopy.Host)
+			}
+		}
 	}
 	r.pools[pcCopy.ID] = &poolView{cfg: pcCopy, backends: make(map[string]*backendView)}
 	r.version++
@@ -480,7 +488,7 @@ func (r *Registry) Snapshot() *Snapshot {
 		p := &pool.Pool{
 			ID:       pv.cfg.ID,
 			Name:     pv.cfg.Name,
-			Metadata: map[string]string{"strategy": pv.cfg.Algorithm},
+			Metadata: map[string]string{"strategy": pv.cfg.Algorithm, "host": pv.cfg.Host},
 			Backends: make(map[string]*pool.Backend, len(pv.backends)),
 		}
 		for id, v := range pv.backends {

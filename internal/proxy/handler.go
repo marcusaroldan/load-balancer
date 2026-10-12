@@ -42,9 +42,10 @@ type HandlerConfig struct {
 	Registry *registry.Registry
 	// PoolID selects the served pool statically (tests, single-purpose hosts).
 	PoolID string
-	// DefaultPool resolves the served pool per request when PoolID is empty.
-	// An empty resolution means "no pool configured" -> 503 (scale-to-zero).
-	DefaultPool func() string
+	// PoolResolver resolves the served pool per request when PoolID is empty
+	// (multi-pool host routing lives here). An empty resolution means "no
+	// pool configured" -> 503 (scale-to-zero).
+	PoolResolver func(*http.Request) string
 }
 
 // Handler is the PROD-003 data-plane http.Handler serving one pool through the
@@ -71,7 +72,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 
-	ref, release, err := h.acquireBackend()
+	ref, release, err := h.acquireBackend(r)
 	if err != nil {
 		h.record(false, false, started)
 		http.Error(w, "no backend available", http.StatusServiceUnavailable)
@@ -100,8 +101,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // acquireBackend retries selection when a chosen backend is at its connection
 // limit, so capacity pressure redistributes instead of rejecting outright.
-func (h *Handler) acquireBackend() (*registry.BackendRef, func(), error) {
-	poolID := h.resolvePoolID()
+func (h *Handler) acquireBackend(r *http.Request) (*registry.BackendRef, func(), error) {
+	poolID := h.resolvePoolID(r)
 	for attempt := 0; attempt < maxSelectionAttempts; attempt++ {
 		snap := h.cfg.Registry.Snapshot()
 		ref, err := snap.Select(poolID)
@@ -120,13 +121,14 @@ func (h *Handler) acquireBackend() (*registry.BackendRef, func(), error) {
 }
 
 // resolvePoolID prefers the static PoolID, else asks the resolver (per
-// request, so control-plane pool changes apply without rebuilding handlers).
-func (h *Handler) resolvePoolID() string {
+// request, so host-based pool routing and control-plane pool changes apply
+// without rebuilding handlers).
+func (h *Handler) resolvePoolID(r *http.Request) string {
 	if h.cfg.PoolID != "" {
 		return h.cfg.PoolID
 	}
-	if h.cfg.DefaultPool != nil {
-		return h.cfg.DefaultPool()
+	if h.cfg.PoolResolver != nil {
+		return h.cfg.PoolResolver(r)
 	}
 	return ""
 }

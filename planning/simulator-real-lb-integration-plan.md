@@ -235,6 +235,8 @@ Ensure all synthetic traffic is sent to the LB endpoint, not directly to the bac
 
 ### Ticket SIM-005: Add public observability endpoints for LB behavior
 
+**Status**: Complete
+
 **Goal**
 Expose only the data needed to understand runtime behavior without leaking internals.
 
@@ -254,6 +256,17 @@ Expose only the data needed to understand runtime behavior without leaking inter
 2. Include backend status, active connections, total requests, request success/failure rates, and strategy.
 3. Expose metrics or summary counters in a minimal format suitable for the simulator dashboard.
 4. Keep implementation intentionally limited to the public contract.
+
+**Implemented in (satisfied by PROD-007/PROD-009 + SIM-006 remote-adapter work, no separate code)**
+- `internal/controlplane/api.go` — GET /healthz, /readyz, /metrics on the live registry
+- `internal/controlplane/prometheus.go` — zero-label aggregate metrics (Prometheus via Accept: text/plain, JSON by default)
+- `internal/simulator/remote_lb_adapter.go` — fetches /metrics, deltas vs baseline → snapshot
+- `internal/simulator/lb_contract.go` — LoadBalancerSnapshot (deliberately omits routing internals/traces)
+- `web/app.js`, `web/index.html` — outcomes panel rendering the aggregates
+
+**Verification (2026-10-12)**
+- Live: `GET https://lb.marcusroldan.dev/api/state` returns public `load_balancer` aggregates (requests, success/failure, avg latency, healthy/total backends, strategy, observed_at) with no routing internals or per-request traces.
+- Tests: `TestRemoteAdapterSnapshotDeltasAndCache`, `TestRemoteAdapterRequiresBothURLs` (`go test ./...` green incl. -race).
 
 **Estimate**: 4-6 hours
 

@@ -116,6 +116,7 @@ type createBackendBody struct {
 type createPoolBody struct {
 	PoolID       string               `json:"pool_id"`
 	Name         string               `json:"name"`
+	Host         string               `json:"host"`
 	Algorithm    string               `json:"algorithm"`
 	HealthPolicy *config.HealthPolicy `json:"health_policy"`
 	Sticky       *config.StickyConfig `json:"sticky"`
@@ -364,7 +365,7 @@ func (h *APIHandler) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	pc := config.PoolConfig{ID: body.PoolID, Name: body.Name, Algorithm: body.Algorithm}
+	pc := config.PoolConfig{ID: body.PoolID, Name: body.Name, Host: body.Host, Algorithm: body.Algorithm}
 	if body.HealthPolicy != nil {
 		pc.HealthPolicy = *body.HealthPolicy
 	}
@@ -605,15 +606,16 @@ func statusFor(err error) int {
 	case errors.Is(err, pool.ErrPoolNotFound), errors.Is(err, pool.ErrBackendNotFound),
 		errors.Is(err, registry.ErrUnknownPoolForBackend):
 		return http.StatusNotFound
-	case errors.Is(err, config.ErrDuplicateID), errors.Is(err, pool.ErrBackendAlreadyExists):
+	case errors.Is(err, config.ErrDuplicateID), errors.Is(err, config.ErrDuplicateHost),
+		errors.Is(err, pool.ErrBackendAlreadyExists):
 		return http.StatusConflict
 	case errors.Is(err, config.ErrUnknownStrategy), errors.Is(err, config.ErrInvalidPort),
 		errors.Is(err, config.ErrInvalidWeight), errors.Is(err, config.ErrInvalidID),
 		errors.Is(err, config.ErrInvalidAddress), errors.Is(err, config.ErrInvalidPath),
 		errors.Is(err, config.ErrInvalidThreshold), errors.Is(err, config.ErrInvalidDuration),
 		errors.Is(err, config.ErrInvalidName), errors.Is(err, config.ErrMissingPool),
-		errors.Is(err, config.ErrStickyTTLRequired), errors.Is(err, registry.ErrPoolHasBackends),
-		errors.Is(err, errPoolAmbiguous):
+		errors.Is(err, config.ErrInvalidHost), errors.Is(err, config.ErrStickyTTLRequired),
+		errors.Is(err, registry.ErrPoolHasBackends), errors.Is(err, errPoolAmbiguous):
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError

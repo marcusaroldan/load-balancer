@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/marcusaroldan/load-balancer/internal/controlplane"
@@ -148,10 +149,11 @@ func (rt *Runtime) Start(ctx context.Context) error {
 
 	rt.dataHandler = proxy.NewHandler(proxy.HandlerConfig{
 		Registry: rt.registry,
-		// Default-pool routing: with exactly one configured pool the data
-		// plane serves it; zero pools -> 503 (scale-to-zero); >1 pools needs
-		// host/path routing (future ticket, not yet specified).
-		DefaultPool: rt.defaultPool,
+		// Per-request pool resolution: a pool whose Host matches the
+		// request hostname wins; with no host claims, exactly one
+		// configured pool still serves everything (single-pool default).
+		// No match -> 503 (scale-to-zero semantics preserved).
+		PoolResolver: rt.resolvePool,
 	})
 	rt.healthMgr = health.NewManager(rt.registry, rt.cfg.HealthInterval, nil)
 
@@ -221,15 +223,43 @@ func (rt *Runtime) Shutdown(ctx context.Context) error {
 func (rt *Runtime) DataPlaneAddr() string    { return addrOf(rt.lnData) }
 func (rt *Runtime) ControlPlaneAddr() string { return addrOf(rt.lnControl) }
 
-// defaultPool implements the data-plane pool resolution rule: exactly one
-// configured pool wins; anything else yields "" (-> 503).
-func (rt *Runtime) defaultPool() string {
+// resolvePool implements the data-plane pool resolution rule:
+//  1. A pool whose Host matches the request hostname (case-insensitive,
+//     port stripped) wins — multi-pool host routing.
+//  2. Otherwise, exactly one configured pool wins (single-pool default).
+//  3. Anything else yields "" (-> 503: zero pools, or no host match among
+//     multiple pools).
+func (rt *Runtime) resolvePool(r *http.Request) string {
 	snap := rt.registry.Snapshot()
 	pools := snap.Pools()
+	if len(pools) == 0 {
+		return ""
+	}
+	if host := requestHost(r); host != "" {
+		for _, id := range pools {
+			p, ok := snap.Pool(id)
+			if ok && p.Metadata["host"] == host {
+				return id
+			}
+		}
+	}
 	if len(pools) == 1 {
 		return pools[0]
 	}
 	return ""
+}
+
+// requestHost extracts the bare hostname from the request Host header
+// (strip port, lowercase), matching how config normalizes pool hosts.
+func requestHost(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	return strings.ToLower(strings.TrimSpace(host))
 }
 
 // isLoopbackBind reports whether an address binds only loopback interfaces.
