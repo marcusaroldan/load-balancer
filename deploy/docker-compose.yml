@@ -1,14 +1,16 @@
-# lbdemo — load-balancer + simulator/dashboard on the VM
+# lbdemo — load-balancer + simulator/dashboard demo project
 #
-# Placement (VM convention: one compose project per service dir):
-#   /opt/services/lbdemo/docker-compose.yml            (copy of this file)
-#   /opt/services/lbdemo/load-balancer/                (git clone)
-# i.e. the repo lives as a sibling named load-balancer inside this dir;
-# building straight from a repo checkout: LB_REPO_DIR=. docker compose -f
-# deploy/docker-compose.yml up -d --build
+# Layout: place this file in its own directory with the repo cloned as a
+# sibling named load-balancer, e.g.
+#
+#   <some-dir>/docker-compose.yml     (this file)
+#   <some-dir>/load-balancer/         (git clone of the repo)
+#
+# Building straight from a repo checkout instead:
+#   LB_REPO_DIR=. docker compose -f deploy/docker-compose.yml up -d --build
 #
 # Publish rules: ONLY the dashboard is published, and only on loopback —
-# the Cloudflared tunnel (separate project, host network) is what reaches
+# a reverse proxy or tunnel (separate concern) is what reaches
 # 127.0.0.1:${DASHBOARD_PORT}. The load balancer's data plane (9000) and
 # control plane (8082) stay on the private network, unreachable from the
 # host, let alone the internet.

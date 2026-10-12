@@ -1,4 +1,8 @@
 # syntax=docker/dockerfile:1
+#
+# Deliberately naive one-stage build, kept only for the image-size
+# comparison in the README: same binary as the multi-stage Dockerfile,
+# but a full Go toolchain image instead of scratch.
 FROM golang:1.25-alpine AS naive
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -7,4 +11,5 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/loadbalancer ./cmd/loadbalancer
 EXPOSE 8080
 USER nonroot:nonroot
-ENTRYPOINT ["/loadbalancer"]
+ENTRYPOINT ["/bin/loadbalancer"]
+CMD ["-data", ":9000", "-control", ":8082", "-expose-control"]
