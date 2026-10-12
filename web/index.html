@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f8fafc" />
     <title>Load Balancer Simulator</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%230cadc9'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="./styles.css" />
     <script src="./theme-engine.js"></script>
   </head>
@@ -12,7 +13,7 @@
     <div class="page-shell mx-auto max-w-6xl px-5 pb-16 pt-8">
       <header class="topbar flex items-center justify-between gap-6 pb-6">
         <div>
-          <h1 class="text-brand text-3xl font-bold tracking-tight">Load Balancer Simulator</h1>
+          <h1 class="text-brand text-3xl font-bold tracking-tight">Load Balancer Simulator | <a href="https://marcusroldan.dev">MarcusRoldan.dev</a></h1>
         </div>
         <div class="actions flex flex-wrap items-center gap-3">
           <div class="scenario-control flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2">
@@ -44,6 +45,7 @@
             <summary class="text-neutral-heading">What is this simulator?</summary>
             <div class="instructions-body">
               <p>This simulator shows how a load balancer spreads traffic across backend servers in a dynamic network environment. Its purpose is to showcase the load balancer software I built and how it responds to changing network environments and balancing configurations. The simulator creates mock clients and backends alongside real HTTP requests that get sent to an actual instance of the load balancer which determines the request routing and returns the responses back to the client.</p>
+              <p><a href="https://github.com/marcusaroldan/load-balancer.git">Source code</a></p>
               <div class="instruction-groups">
                 <details>
                   <summary>Scenarios:</summary>
@@ -62,7 +64,7 @@
                   <p>The load balancer itself is a real HTTP routing component that receives client requests, evaluates the active backend pool, and applies a selection strategy such as round robin, weighted round robin, or least connections. It tracks backend health, active connections, request rate, and observed latency so it can adapt traffic distribution during failures or degraded conditions. The core load balancer also supports multi-pool host routing (each pool can claim a public hostname and the data plane selects the pool by request Host header), though this demo drives a single pool to keep the environment model simple.</p>
                 </details>
                 <details>
-                  <summary>Future extensions (not implemented yet):</summary>
+                  <summary>Future extensions for this project:</summary>
                   <ul>
                     <li><em>- Prometheus metrics + Grafana dashboard:</em> the control plane already serves Prometheus-format metrics at <code>/metrics</code>; a scrape config and importable dashboard are planned so operators are able to get time-series history, as opposed to the current-aggregates, as displayed in this simulator.</li>
                     <li><em>- Sticky sessions:</em> cookie-based session affinity is designed (per-pool enable + TTL in the config model) but not wired into routing yet.</li>
