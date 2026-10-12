@@ -1,22 +1,18 @@
 # load-balancer
 
-A production-shaped load balancer written in Go: registry-backed pools,
-health checking with hysteresis, round-robin / weighted / least-connections
-strategies, graceful draining, multi-pool host routing, and a live
-control-plane API. It runs standalone as a real service and doubles as the
-engine behind an interactive [simulator dashboard](https://lb.marcusroldan.dev).
+This project is a production-shaped load balancer written in Go. 
+Features:
+- registry-backed pools
+- health checking with hysteresis
+- round-robin / weighted / least-connections routing strategies
+- graceful draining
+- multi-pool host routing
+- live control-plane API 
+It can run standalone as a real service and also doubles as the engine behind an interactive [simulator dashboard](https://lb.marcusroldan.dev).
 
-Pure standard library — zero third-party dependencies. Multi-stage build
-produces a ~15 MB distroless image that health-checks itself (no curl in
-scratch images).
+This is a pure standard library with zero third-party dependencies. Multi-stage build produces a ~15 MB distroless image that health-checks itself (there is no curl in scratch images).
 
-```
-client ──▶ data plane :9000 ──▶ registry snapshot ──▶ strategy select ──▶ backend
-                │ 503 scale-to-zero │ connection limits │ drain-aware
-operator ──▶ control plane :8082 ──▶ pools / backends / strategy / healthz / readyz / metrics
-```
-
-## Quick start: run the service with a local backend
+## Quick start guide: Run the service with a local backend
 
 Terminal 1 - a toy backend:
 
@@ -39,15 +35,11 @@ curl localhost:8082/readyz && curl -I localhost:9000   # 200 through the LB
 curl localhost:8082/metrics                            # counters + health gauges
 ```
 
-The registry starts empty (503 until configured) and everything above is
-in-memory: restart the process for a clean slate. The control plane binds
-loopback by default; `-expose-control` is required to bind elsewhere and
-should only be used on a trusted network (see DEPLOYMENT.md).
+The registry starts empty (503 until it is configured) and everything above is in-memory: restart the process for a clean slate. The control plane binds loopback by default; `-expose-control` is required to bind elsewhere and should only be used on a trusted network.
 
 ## Multi-pool host routing
 
-Each pool may claim a public hostname. The data plane resolves the pool per
-request from the `Host` header (port stripped, case-insensitive):
+Each pool may claim a public hostname. The data plane resolves the pool per request from the `Host` header (port stripped, case-insensitive):
 
 ```sh
 curl -X POST localhost:8082/pool -d '{"pool_id":"api","host":"api.example.com"}'
@@ -56,31 +48,19 @@ curl -X POST localhost:8082/pool -d '{"pool_id":"web","host":"www.example.com"}'
 
 - A request whose hostname matches a pool's claim routes to that pool.
 - With a single configured pool, everything routes to it (default rule).
-- Among multiple pools, an unclaimed hostname is a 503 — the balancer never
-  guesses.
+- Among multiple pools, an unclaimed hostname is a 503 — the balancer never guesses.
 - Duplicate host claims are rejected (`409`), invalid hostnames (`400`).
 
 ## Simulator dashboard
 
 ```sh
 go run ./cmd/simulator -port 8090
-# open http://localhost:8090
+# open up http://localhost:8090 to view
 ```
 
-The dashboard displays and alters environment conditions (backends, weights,
-latency, failure rates, strategy) and shows how the load balancer reacts:
-synthetic clients send real HTTP requests through a real load balancer
-instance (in-process by default, or out-of-process over the control plane),
-and the outcomes panel renders the LB's own aggregates. Simulated backends
-bind to loopback by default; `--backend-bind` / `--backend-advertise`
-configure reachability when a load balancer runs as a separate container.
-The dashboard polls every 200ms and updates DOM nodes in place — no full
-repaints.
+The dashboard displays and alters environment conditions (backends, weights, latency, failure rates, strategy) and shows how the load balancer reacts: synthetic clients send real HTTP requests through a real load balancer instance (in-process by default, or out-of-process over the control plane), and the outcomes panel renders the LB's own aggregates. Simulated backends bind to loopback by default; `--backend-bind` / `--backend-advertise` configure reachability when a load balancer runs as a separate container. The dashboard polls every 200ms and updates DOM nodes in place so there are no full repaints.
 
 ## Control plane API (v1)
-
-All on the control-plane listener, documented in
-[planning/standalone-production-load-balancer-plan.md](planning/standalone-production-load-balancer-plan.md):
 
 | Endpoint | Purpose |
 |---|---|
@@ -101,25 +81,19 @@ make docker-lb         # docker build --target loadbalancer -t lbdemo-lb .
 make docker-dashboard  # docker build --target simulator -t lbdemo-dashboard .
 ```
 
-### Run the demo project (real LB + dashboard, like the VM):
+### Run the demo project (real LB plus the dashboard:
 ```sh
 make compose-up        # dashboard on http://127.0.0.1:8090, LB unpublished
 ```
 
-`deploy/docker-compose.yml` runs both containers on a private bridge: the
-dashboard publishes `127.0.0.1:${DASHBOARD_PORT:-8090}` only, the LB
-publishes nothing (control plane reachable only inside the compose network),
-both run read-only rootfs with all capabilities dropped, and both
-health-check themselves with the bundled `/healthz` probe.
+`deploy/docker-compose.yml` runs both containers on a private bridge: the dashboard publishes `127.0.0.1:${DASHBOARD_PORT:-8090}` only, the LB publishes nothing (control plane reachable only inside the compose network), both run read-only rootfs with all capabilities dropped, and both health-check themselves with the bundled `/healthz` probe.
 
 ### Run the images standalone:
 ```sh
 docker run --rm -p 127.0.0.1:9000:9000 -p 127.0.0.1:8082:8082 lbdemo-lb
 docker run --rm -p 127.0.0.1:8090:8081 lbdemo-dashboard
 ```
-The load balancer image defaults to `-data :9000 -control :8082`; the
-control plane is only reachable because you mapped it to loopback yourself
-(never publish :8082 through a tunnel or proxy).
+The load balancer image defaults to `-data :9000 -control :8082`; the control plane is only reachable because you mapped it to loopback yourself (never publish :8082 through a tunnel or proxy).
 
 ### Image size
 
@@ -142,37 +116,21 @@ Dashboard styles are Tailwind v4 compiled to committed CSS:
 npm run build:css   # web/inputs.css -> web/styles.css (minified, committed)
 ```
 
-CI runs vet, gofmt, the full test suite with `-race`, builds both container
-targets, asserts the image-size budget, smoke-tests the scratch images, and
-validates the compose file.
+CI runs vet, gofmt, the full test suite with `-race`, builds both container targets, asserts the image-size budget, smoke-tests the scratch images, and validates the compose file.
 
 ## Security notes
 
-- The control plane owns the LB. It binds loopback by default and refuses a
-  non-loopback bind unless `-expose-control` is passed explicitly.
-- The Prometheus `/metrics` endpoint is public by design (aggregates only,
-  zero labels — no per-backend routing state can leak through it). If you
-  expose the LB through a tunnel or proxy, either keep the data plane as the
-  only published surface or scrape `/metrics` from inside the private
-  network.
-- Request bodies are size-capped; mutations are audit-logged on the control
-  plane; every response carries an `X-Request-ID` propagated upstream.
+- The control plane owns the LB. It binds loopback by default and refuses a non-loopback bind unless `-expose-control` is passed explicitly.
+- The Prometheus `/metrics` endpoint is public by design (aggregates only, zero labels — no per-backend routing state can leak through it). If you expose the LB through a tunnel or proxy, either keep the data plane as the only published surface or scrape `/metrics` from inside the private network.
+- Request bodies are size-capped; mutations are audit-logged on the control plane; every response carries an `X-Request-ID` propagated upstream.
 
 ## Future extensions (designed, not implemented)
 
-These are deliberate next steps, tracked in `planning/` — the core ships
-without them today:
+These are deliberate next steps to extend the project:
 
-- **Prometheus scrape + Grafana dashboard** — `/metrics` already speaks
-  Prometheus; a scrape config and an importable dashboard JSON are planned
-  so operators get time-series history (rates, percentiles, alerting) on top
-  of the current aggregates.
-- **Sticky sessions** — per-pool cookie affinity with TTL exists in the
-  config model (`sticky_sessions` with `ttl_seconds` validation) but is not
-  wired into the routing engine yet.
-- **Persistent configuration** — save/reload of the desired-state document
-  across restarts is planned; today the runtime starts empty and is
-  configured live through the control plane (or `Load()` in tests/harnesses).
+- **Prometheus scrape + Grafana dashboard**: `/metrics` already is configured for future integration with Prometheus; a scrape config and an importable dashboard JSON are planned so operators get time-series history (rates, percentiles, alerting) on top of the current aggregates.
+- **Sticky sessions**: per-pool cookie affinity with TTL exists in the config model (`sticky_sessions` with `ttl_seconds` validation) but is not wired into the routing engine yet.
+- **Persistent configuration**: save/reload of the desired-state document across restarts is planned; today the runtime starts empty and is configured live through the control plane (or `Load()` in tests/harnesses).
 
 ## Project layout
 
@@ -188,10 +146,9 @@ internal/controlplane/  HTTP API v1 + audit + Prometheus negotiation
 internal/runtime/    composition root: listeners, lifecycle, pool resolution
 internal/healthprobe/  self-contained healthcheck for scratch images
 deploy/              docker-compose.yml for the demo project
-planning/            design docs and ticketed plans (PROD-*, SIM-*)
 web/                 dashboard frontend (vanilla JS)
 ```
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT [LICENSE](LICENSE).

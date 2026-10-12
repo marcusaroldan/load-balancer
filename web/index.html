@@ -64,7 +64,7 @@
                 <details>
                   <summary>Future extensions (not implemented yet):</summary>
                   <ul>
-                    <li><em>- Prometheus metrics + Grafana dashboard:</em> the control plane already serves Prometheus-format metrics at <code>/metrics</code>; a scrape config and importable dashboard are planned so operators get time-series history, not just current aggregates.</li>
+                    <li><em>- Prometheus metrics + Grafana dashboard:</em> the control plane already serves Prometheus-format metrics at <code>/metrics</code>; a scrape config and importable dashboard are planned so operators are able to get time-series history, as opposed to the current-aggregates, as displayed in this simulator.</li>
                     <li><em>- Sticky sessions:</em> cookie-based session affinity is designed (per-pool enable + TTL in the config model) but not wired into routing yet.</li>
                     <li><em>- Persistent configuration:</em> saving and reloading the pool/backend desired state across restarts is planned; the runtime currently starts empty (scale-to-zero) and is configured live through the control plane.</li>
                   </ul>
