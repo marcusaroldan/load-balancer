@@ -157,7 +157,11 @@ func (rt *Runtime) Start(ctx context.Context) error {
 	})
 	rt.healthMgr = health.NewManager(rt.registry, rt.cfg.HealthInterval, nil)
 
-	rt.srvData = &http.Server{Handler: withRequestID(rt.dataHandler), ReadHeaderTimeout: defaultReadHeaderTimeout, IdleTimeout: defaultIdleTimeout}
+	// ReadTimeout bounds slow request-body attacks (slowloris variants);
+	// WriteTimeout is deliberately omitted: this server proxies arbitrary
+	// backend responses, and a write deadline would abort long-lived
+	// streamed transfers. IdleTimeout reaps quiet connections.
+	rt.srvData = &http.Server{Handler: withRequestID(rt.dataHandler), ReadHeaderTimeout: defaultReadHeaderTimeout, ReadTimeout: 60 * time.Second, IdleTimeout: defaultIdleTimeout}
 	rt.srvControl = &http.Server{
 		Handler: withRequestID(controlplane.NewAPIHandler(controlplane.APIDeps{
 			Registry:     rt.registry,
@@ -166,6 +170,8 @@ func (rt *Runtime) Start(ctx context.Context) error {
 			StartedAt:    time.Now(),
 		})),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
 	}
 
 	rt.started = true
